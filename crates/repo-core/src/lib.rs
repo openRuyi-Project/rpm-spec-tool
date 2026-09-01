@@ -1,11 +1,8 @@
-//! Data model and EVR comparison for the `rpm-spec-tool` repository subsystem.
+//! Shared data model, EVR comparison, and SQLite index access for repositories.
 //!
-//! Pure types and pure functions only. Zero I/O. Zero network. Backends
-//! that actually fetch and parse repository metadata live in
-//! `rpm-spec-repo-metadata`; the resolver lives in `rpm-spec-repo-resolver`.
-//! Keeping this crate lean means [`rpm_spec_profile`] can depend on the
-//! shared data shapes without pulling HTTP, compression, or XML parsers
-//! into the profile crate's compile graph.
+//! Network access, metadata parsing, and cache publication live in
+//! `rpm-spec-repo-metadata`; dependency lookup lives in
+//! `rpm-spec-repo-resolver`.
 //!
 //! The user-facing types are:
 //!
@@ -20,9 +17,8 @@
 //! - [`evr::EVR`] — Epoch-Version-Release with the rpm vercmp algorithm.
 //! - [`error::RepoError`] — fail variants partitioned by phase.
 //!
-//! All `repo-*` crates require Linux: file locking via `fcntl`, the
-//! distribution model itself, and `/usr/lib/rpm/macros.d/` conventions
-//! assume a Linux host. Cross-compilation fails at the workspace boundary.
+//! This crate does not use Linux-specific APIs. Unix-specific cache publication
+//! stays in `rpm-spec-repo-metadata`.
 
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
@@ -33,11 +29,6 @@
     missing_docs,
     reason = "pre-1.0: doc backlog tracked separately; switch fires loudly when backlog reaches zero"
 )]
-
-#[cfg(not(target_os = "linux"))]
-compile_error!(
-    "rpm-spec-repo-core requires Linux — repository handling assumes Linux-only conventions"
-);
 
 pub mod db;
 pub mod error;

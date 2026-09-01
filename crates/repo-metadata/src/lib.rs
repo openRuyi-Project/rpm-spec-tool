@@ -6,6 +6,8 @@
 //! [`rpm_spec_repo_core::RepoIndex`] / [`rpm_spec_repo_core::RepoUniverse`]
 //! via the [`backend::RepoBackend`] trait without ever importing the
 //! HTTP, compression, or XML dependencies.
+//!
+//! Cache publication uses Unix advisory locks and symbolic links.
 
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
@@ -14,8 +16,8 @@
     reason = "pre-1.0: doc backlog tracked separately; switch fires loudly when backlog reaches zero"
 )]
 
-#[cfg(not(target_os = "linux"))]
-compile_error!("rpm-spec-repo-metadata requires Linux");
+#[cfg(not(unix))]
+compile_error!("rpm-spec-repo-metadata requires a Unix host");
 
 pub mod backend;
 pub mod cache;

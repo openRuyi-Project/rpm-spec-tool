@@ -4,22 +4,21 @@
 //!
 //! 1. **Explicit path** — `--config <path>` on the CLI; the LSP
 //!    server's project-specific override. Loaded verbatim.
-//! 2. **XDG default** — `$XDG_CONFIG_HOME/rpm-spec-tool/rpmspec.toml`
-//!    (falls back to `~/.config/rpm-spec-tool/rpmspec.toml` on systems
-//!    where the env var isn't set). Resolved via
-//!    [`directories::ProjectDirs`]; respects the standard XDG cascade.
+//! 2. **Platform default** — `rpmspec.toml` below the configuration
+//!    directory returned by [`directories::ProjectDirs`]. Linux follows
+//!    the XDG base-directory rules.
 //! 3. **Built-in defaults** — when neither the explicit path nor the
-//!    XDG file exists, [`Config::default`] is returned. The tool still
+//!    platform file exists, [`Config::default`] is returned. The tool still
 //!    works against built-in profiles.
 //!
-//! The pre-XDG behaviour walked upward from each spec file looking
+//! The previous behaviour walked upward from each spec file looking
 //! for `.rpmspec.toml`, which made config discovery position-dependent
 //! and caused the same spec to be linted with different rules
-//! depending on cwd. XDG-only gives one rule per machine and
-//! eliminates the surprise.
+//! depending on cwd. One platform-default file keeps configuration
+//! position-independent.
 //!
 //! Both the CLI (batch processing) and the LSP server use this
-//! directly. The CLI typically resolves the XDG path itself (so it
+//! directly. The CLI typically resolves the platform path itself (so it
 //! can read `$RPM_SPEC_TOOL_CONFIG` env-var overrides) and feeds the
 //! resolved path into `ConfigCache::new(Some(path))`; the LSP server
 //! calls [`default_config_path`] from this crate so the behaviour
@@ -54,14 +53,11 @@ pub enum ConfigCacheError {
     },
 }
 
-/// The canonical XDG config file location.
+/// The canonical platform config file location.
 ///
-/// Returns `$XDG_CONFIG_HOME/rpm-spec-tool/rpmspec.toml`, falling
-/// back to `~/.config/rpm-spec-tool/rpmspec.toml` per the XDG Base
-/// Directory Specification. `None` is only possible on platforms
-/// where the user's home directory can't be determined — extremely
-/// rare on Linux, but the tool's `compile_error!` already restricts
-/// us to Linux.
+/// Uses `directories::ProjectDirs`; Linux follows the XDG base-directory
+/// rules. `None` is only possible when the user's home directory cannot be
+/// determined.
 ///
 /// The returned path is NOT checked for existence; callers decide
 /// whether a missing file is a hard error or a soft fall-back to
@@ -73,14 +69,13 @@ pub fn default_config_path() -> Option<PathBuf> {
 }
 
 /// Caches a single loaded config (either explicit `--config` or the
-/// XDG default). Two-level memoization the pre-XDG version needed
-/// (per-directory walk-up memo) is gone — the config is now
-/// position-independent so a single `Arc<Config>` covers every spec.
+/// platform default). The old per-directory walk-up needed two-level
+/// memoization; one `Arc<Config>` now covers every spec.
 ///
 /// Construction modes:
 /// * `ConfigCache::new(Some(path))` — load `path` once on first use.
 /// * `ConfigCache::new(None)` — return [`Config::default`] for every
-///   query. Callers that want the XDG default file should resolve it
+///   query. Callers that want the platform default file should resolve it
 ///   via [`default_config_path`] and check existence themselves
 ///   before passing `Some(...)`.
 pub struct ConfigCache {

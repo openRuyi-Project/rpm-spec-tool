@@ -151,28 +151,27 @@ The HTTP client respects `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` natively — 
 
 ## On-disk cache layout
 
+`<CACHE_ROOT>` comes from `--cache-dir`, `RPM_SPEC_TOOL_CACHE_DIR`, or the platform default returned by `ProjectDirs` (XDG on Linux).
+
 ```
-$XDG_CACHE_HOME/rpm-spec-tool/
+<CACHE_ROOT>/
 ├── http/<sha256-url>/{body, meta.json}         # raw response bodies + ETag / Last-Modified sidecar
 ├── repos/<sha256-canonical-baseurl>/
 │   ├── current -> snapshots/<rev>/             # symlink to the latest snapshot
 │   ├── snapshots/<rev>/
-│   │   ├── repomd.xml                          # raw, retained for re-hashing
-│   │   ├── primary.xml / filelists.xml / updateinfo.xml
-│   │   ├── index.bincode                       # parsed RepoIndex for fast reload
+│   │   ├── repo.db                             # indexed repository facts
 │   │   └── manifest.json                       # backend kind, fetched_at, bytes, sha
-│   └── revisions.log
-├── tmp/                                         # GC'd on startup
+├── tmp/                                         # reserved temporary workspace
 ├── lockfiles.json                              # registry of known lockfile paths (for GC pin awareness)
 └── version                                     # cache schema version
 ```
 
 Key invariants:
 
-- **Snapshot id = `sha256(repomd.xml)`** so two profiles configured against the same URL share one cache directory automatically (auto-dedup).
-- **Atomic writes**: every snapshot is staged in `tmp/`, fsync'd, then renamed under `snapshots/<rev>/`.
-- **Concurrent processes** serialise on a per-repo `fcntl` exclusive lock — two `repo sync` of the same URL will queue rather than race.
-- **`bincode` reload** speeds up the second-and-later open of a cached snapshot by ~10×; on schema mismatch the cache transparently re-parses from the raw XML it retains.
+- **Snapshot id** is the SHA-256 of the backend's format-defining file (`repomd.xml` or `base/release`).
+- **File publication**: `manifest.json` and `repo.db` are each written through a temporary file and rename before the `current` symlink is updated.
+- **Concurrent processes** serialise on a per-repo exclusive advisory lock — two `repo sync` of the same URL will queue rather than race.
+- **SQLite reload** uses `repo.db` for indexed queries without materialising the full repository in memory; a missing or incompatible database requires another `repo sync`.
 - **Conditional GET**: every HTTP fetch sends `If-None-Match` / `If-Modified-Since` so repeated `repo sync` of an unchanged repo returns `304 Not Modified` and uses cached bytes.
 
 ## Troubleshooting

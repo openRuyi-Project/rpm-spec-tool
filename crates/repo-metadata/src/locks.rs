@@ -11,7 +11,7 @@ use rustix::fs::{FlockOperation, flock};
 
 use rpm_spec_repo_core::RepoError;
 
-/// RAII guard: holds an fcntl `LOCK_EX` until dropped.
+/// RAII guard that holds an exclusive advisory lock until dropped.
 #[derive(Debug)]
 pub struct RepoLockGuard {
     _file: File,

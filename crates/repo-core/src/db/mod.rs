@@ -25,7 +25,7 @@
 //!
 //! ## Concurrency
 //!
-//! Single writer at a time (the existing `fcntl` snapshot lock in
+//! Single writer at a time (the existing advisory snapshot lock in
 //! `repo-metadata::locks` already serialises). Multiple readers are
 //! fine because SQLite's WAL mode tolerates concurrent reads.
 //!

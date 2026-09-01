@@ -1,21 +1,17 @@
-//! On-disk snapshot cache under `~/.cache/rpm-spec-tool/repos/`.
+//! On-disk repository snapshot cache.
 //!
 //! Layout (see `doc/repos.md`):
 //! ```text
 //! repos/<sha256-canonical-baseurl>/
 //!   current -> snapshots/<rev>/
 //!   snapshots/<rev>/
-//!     repomd.xml | release
-//!     primary.xml, filelists.xml, updateinfo.xml (decompressed)
 //!     repo.db                   # SQLite per-repo index
 //!     manifest.json             # backend kind, fetched_at, sha, bytes
-//!   revisions.log
 //! ```
 //!
-//! Atomic snapshot writes: each fresh snapshot is materialised in
-//! `tmp/`, fsync'd, then renamed under `snapshots/<rev>/` and the
-//! `current` symlink is repointed. Concurrent writers serialise on a
-//! per-repo fcntl lock acquired via [`crate::locks`].
+//! `manifest.json` and `repo.db` are published through temporary files
+//! and rename before the `current` symlink is updated. Concurrent writers
+//! serialise on a per-repo advisory lock acquired via [`crate::locks`].
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -45,10 +41,10 @@ pub struct SnapshotManifest {
     pub baseurl_sha256: String,
 }
 
-/// Locate the cache root, defaulting to `~/.cache/rpm-spec-tool/` via
-/// `directories::ProjectDirs`. Override with `RPM_SPEC_TOOL_CACHE_DIR`
-/// or the `--cache-dir` CLI flag (CLI passes the resolved path
-/// directly).
+/// Locate the cache root from the environment or `directories::ProjectDirs`.
+///
+/// `RPM_SPEC_TOOL_CACHE_DIR` takes precedence. The platform default follows
+/// the XDG cache directory on Linux.
 pub fn default_cache_root() -> Result<PathBuf, RepoError> {
     if let Ok(v) = std::env::var("RPM_SPEC_TOOL_CACHE_DIR") {
         let p = PathBuf::from(v);
@@ -62,15 +58,12 @@ pub fn default_cache_root() -> Result<PathBuf, RepoError> {
     Ok(p)
 }
 
-/// Locate the data root for non-disposable artifacts, defaulting to
-/// `$XDG_DATA_HOME/rpm-spec-tool/` (typically
-/// `~/.local/share/rpm-spec-tool/`). Override with
-/// `RPM_SPEC_TOOL_DATA_DIR`.
+/// Locate the data root from the environment or `directories::ProjectDirs`.
 ///
-/// The distinction from [`default_cache_root`] is the XDG semantic:
-/// `CACHE_HOME` is "user can `rm -rf` at any moment", `DATA_HOME` is
-/// "important persistent state — losing this is data loss". The
-/// resolved lockfile (per-target-set pinned NEVRA closure) belongs
+/// `RPM_SPEC_TOOL_DATA_DIR` takes precedence. The platform default follows
+/// the XDG data directory on Linux. Unlike [`default_cache_root`], this
+/// root contains important persistent state. The resolved lockfile
+/// (per-target-set pinned NEVRA closure) belongs
 /// in DATA because regenerating it requires re-running `repo sync +
 /// solve` against potentially-shifted upstream repos — that's lossy
 /// reproducibility.
@@ -157,9 +150,9 @@ pub struct CacheDirs {
     /// JSON pin-registry that tracks which lockfiles reference which
     /// snapshot directories — used by `repo cache gc` (when it lands)
     /// to skip evicting pinned snapshots. The actual lockfile *bodies*
-    /// live under [`default_lockfile_dir`] (XDG DATA), not here; this
-    /// JSON is a cache-side index pointing at them. Keeping the index
-    /// in CACHE is fine because it can be rebuilt by walking
+    /// live under [`default_lockfile_dir`] in the platform data directory,
+    /// not here. This JSON is a cache-side index pointing at them.
+    /// Keeping the index in CACHE is fine because it can be rebuilt by walking
     /// `default_lockfile_dir()` if the cache is wiped.
     pub lockfiles_registry: PathBuf,
 }
@@ -197,8 +190,10 @@ fn write_version_marker(root: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Persist a parsed [`RepoIndex`] under the snapshot directory,
-/// emitting `manifest.json` + `repo.db` atomically.
+/// Persist a parsed [`RepoIndex`] under the snapshot directory.
+///
+/// `manifest.json` and `repo.db` are each published with a temporary file
+/// and rename before the `current` symlink is updated.
 ///
 /// Raw metadata files (`repomd.xml`, `primary.xml.gz`, …) are NOT
 /// currently staged alongside; they live in the HTTP cache keyed

@@ -23,28 +23,26 @@ use rpm_spec_analyzer::registry;
 ///
 /// Mirrors the lookup the loader uses
 /// ([`rpm_spec_analyzer::config_cache::default_config_path`]): the
-/// XDG location (`$XDG_CONFIG_HOME/rpm-spec-tool/rpmspec.toml` →
-/// `~/.config/rpm-spec-tool/rpmspec.toml` on Linux). The tool only
-/// auto-loads two locations — explicit `--config` and this XDG file —
-/// so `config init` defaults to the XDG path; the older project-local
+/// platform configuration directory returned by `ProjectDirs`. Linux
+/// follows the XDG base-directory rules. The loader accepts an explicit
+/// `--config`, `$RPM_SPEC_TOOL_CONFIG`, or this platform file;
+/// `config init` defaults to the platform path. The older project-local
 /// `./.rpmspec.toml` walk-up is gone and would not be picked up
 /// implicitly. Override via `--output PATH` and then point the tool
 /// at it explicitly with `--config PATH` if a project-local file is
 /// preferred.
 fn resolve_default_output() -> PathBuf {
     // `default_config_path` returns `None` only on platforms where
-    // home dir lookup fails — vanishingly rare on Linux, where the
-    // tool is compile-gated. The fallback covers the corner case
+    // home dir lookup fails. The fallback covers the corner case
     // without crashing.
     default_config_path().unwrap_or_else(|| PathBuf::from("rpmspec.toml"))
 }
 
 #[derive(Debug, Args)]
 pub struct InitOpts {
-    /// Output path. Defaults to the XDG config location
-    /// (`$XDG_CONFIG_HOME/rpm-spec-tool/rpmspec.toml`, typically
-    /// `~/.config/rpm-spec-tool/rpmspec.toml`) — the same file the
-    /// tool auto-loads when no `--config` is passed. Parent
+    /// Output path. Defaults to `rpmspec.toml` in the platform configuration
+    /// directory; Linux follows the XDG base-directory rules. This is the
+    /// same file the tool auto-loads when no `--config` is passed. Parent
     /// directories are created if missing.
     #[arg(long, value_name = "PATH")]
     pub output: Option<PathBuf>,
@@ -122,10 +120,8 @@ pub fn run(opts: InitOpts) -> Result<ExitCode> {
         }
     }
 
-    // Create the parent directory (`~/.config/rpm-spec-tool/`) when it
-    // doesn't exist yet — this is the common first-run case for the
-    // XDG default path. `create_dir_all` is a no-op when the directory
-    // is already there.
+    // Create the output directory when it does not exist. `create_dir_all`
+    // is a no-op when it is already there.
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
     {
@@ -149,8 +145,8 @@ pub fn run(opts: InitOpts) -> Result<ExitCode> {
 
     fs::write(&path, &content).with_context(|| format!("failed to write {}", path.display()))?;
     eprintln!("wrote {}", path.display());
-    let is_xdg = default_config_path().as_deref() == Some(path.as_path());
-    if is_xdg {
+    let is_platform_default = default_config_path().as_deref() == Some(path.as_path());
+    if is_platform_default {
         eprintln!("hint: rpm-spec-tool will auto-load this file on its next run");
     }
     Ok(ExitCode::SUCCESS)
