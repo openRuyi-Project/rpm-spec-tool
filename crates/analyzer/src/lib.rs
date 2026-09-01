@@ -4,6 +4,7 @@
 //! `SpecFile<Span>` and surface findings as [`Diagnostic`]s.
 //!
 //! Entry point: [`session::LintSession`].
+//! Repository-backed rules and APIs are available with the `repo` feature.
 
 #![forbid(unsafe_code)]
 #![warn(missing_debug_implementations)]
@@ -39,6 +40,7 @@ pub mod rules;
 pub mod session;
 pub(crate) mod shell;
 pub mod spec_locals;
+#[cfg(feature = "repo")]
 pub mod spec_nevr;
 pub mod visit;
 
@@ -74,6 +76,7 @@ pub use session::{
     analyze_with_profile_at, parse,
 };
 pub use spec_locals::{scan_spec_locals, scan_spec_locals_into};
+#[cfg(feature = "repo")]
 pub use spec_nevr::{ArchFilter, SpecMainNevr, enriched_macros_with_spec_locals};
 pub use visit::Visit;
 

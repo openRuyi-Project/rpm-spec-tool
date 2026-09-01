@@ -60,6 +60,16 @@ let _ = outcome; // `outcome.spec` is the parsed AST for downstream tooling.
 To run profile-aware rules, resolve a profile via `rpm-spec-profile`
 and call `analyze_with_profile(source, &config, profile)` instead.
 
+## Features
+
+The default build contains the parser, profile support, and SPEC-local rules.
+Enable `repo` to add repository-backed rules and their attribution, plus the
+session APIs that accept a `RepoUniverse`. Add `features = ["repo"]` to the
+`rpm-spec-analyzer` dependency declaration.
+
+The `rpm-spec-tool` CLI enables `repo`; `rpm-spec-lsp` does not request it.
+Cargo may still unify features when both packages are built together.
+
 ## Lint catalogue
 
 The full catalogue of built-in rules — IDs, default severities,
@@ -93,6 +103,9 @@ The public surface lives at the crate root: `analyze`,
 `Edit`, `Suggestion`, `Applicability`, `LintCategory`, `Lint`,
 `LintMetadata`, `Visit`. The `rpm-spec-profile` crate is re-exported as
 `rpm_spec_analyzer::profile` for convenience.
+
+With the `repo` feature, the crate also exports `SpecMainNevr`, `ArchFilter`,
+repository-aware rules, and the repository session APIs.
 
 ## License
 

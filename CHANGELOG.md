@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `rpm-spec-analyzer` now builds SPEC-local analysis by default. Repository
+  dependencies, rules, and `RepoUniverse` APIs require the optional
+  `repo` feature; the full CLI enables it explicitly, while the LSP dependency
+  does not.
+
 ### Fixed
 
 ## [0.1.3] - 2026-05-21

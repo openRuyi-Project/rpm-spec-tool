@@ -70,6 +70,7 @@ where
 /// tests. `profile` is the active distribution profile;
 /// `universe` is the assembled repository universe (typically
 /// constructed inline from a `tiny-*` fixture).
+#[cfg(feature = "repo")]
 pub(crate) fn run_repo_lint<L>(
     src: &str,
     profile: &Profile,

@@ -41,7 +41,7 @@ pub fn builtin_lint_metadata() -> Vec<&'static LintMetadata> {
 /// here. The total order (and hence registration order) is the
 /// concatenation order below.
 pub fn builtin_lints() -> Vec<Box<dyn Lint>> {
-    phase0_proof_of_concept()
+    let lints = phase0_proof_of_concept()
         .into_iter()
         .chain(phase1_packaging_essentials())
         .chain(phase2_correctness())
@@ -79,15 +79,17 @@ pub fn builtin_lints() -> Vec<Box<dyn Lint>> {
         .chain(phase25_files_cleanup())
         .chain(phase25_shell_body_cleanup())
         .chain(phase25_subpackage_style())
-        .chain(phase25_rich_dependency_algebra())
-        .chain(phase26_repo_aware())
-        .collect()
+        .chain(phase25_rich_dependency_algebra());
+    #[cfg(feature = "repo")]
+    let lints = lints.chain(phase26_repo_aware());
+    lints.collect()
 }
 
 // Repository-aware lints (RPM-REPO-*). Skip silently when the
 // active profile has no repos / no cached metadata; the CLI's
 // `matrix deps check` command surfaces a single one-time INFO note
 // in that case.
+#[cfg(feature = "repo")]
 fn phase26_repo_aware() -> Vec<Box<dyn Lint>> {
     vec![
         Box::new(rules::repo::br_unresolvable::BuildRequiresUnresolvable::new()),
@@ -579,29 +581,43 @@ mod tests {
     use super::*;
 
     /// Lock the total rule count so accidental drops/duplicates during
-    /// refactoring of the per-phase helpers are caught immediately. Bump
-    /// this when adding/removing rules. Counts `Lint` *instances* —
-    /// combined rules like `UpgradeEvrCheck` (one instance, two metadata
-    /// IDs) count as one; the full metadata count surfaced via
-    /// [`builtin_lint_metadata`] is asserted separately.
+    /// refactoring of the per-phase helpers are caught immediately. Counts
+    /// `Lint` instances; the repo feature adds seven instances.
     #[test]
     fn builtin_lints_contains_expected_count() {
-        assert_eq!(builtin_lints().len(), 240);
+        let expected = if cfg!(feature = "repo") { 240 } else { 233 };
+        assert_eq!(builtin_lints().len(), expected);
     }
 
-    /// `builtin_lint_metadata` must include every primary metadata plus
-    /// every `additional_metadata` entry. Combined visitors (e.g.
-    /// `UpgradeEvrCheck` emitting RPM-REPO-030 + RPM-REPO-031) would
-    /// silently lose their second ID from listings if the registry
-    /// helper regresses.
+    /// The public registry exposes the complete repository rule set only
+    /// when the dependency-bearing `repo` feature is enabled.
     #[test]
-    fn builtin_lint_metadata_includes_additional_ids() {
-        let ids: Vec<&str> = builtin_lint_metadata().iter().map(|m| m.id).collect();
-        assert!(ids.contains(&"RPM-REPO-030"), "primary id missing: {ids:?}");
-        assert!(
-            ids.contains(&"RPM-REPO-031"),
-            "additional metadata id missing from listing: {ids:?}",
+    fn builtin_lint_metadata_matches_repo_feature() {
+        use std::collections::BTreeSet;
+
+        let actual: BTreeSet<&str> = builtin_lint_metadata()
+            .into_iter()
+            .map(|metadata| metadata.id)
+            .filter(|id| id.starts_with("RPM-REPO-"))
+            .collect();
+
+        #[cfg(feature = "repo")]
+        assert_eq!(
+            actual,
+            BTreeSet::from([
+                "RPM-REPO-001",
+                "RPM-REPO-002",
+                "RPM-REPO-003",
+                "RPM-REPO-010",
+                "RPM-REPO-011",
+                "RPM-REPO-020",
+                "RPM-REPO-030",
+                "RPM-REPO-031",
+            ])
         );
+
+        #[cfg(not(feature = "repo"))]
+        assert!(actual.is_empty(), "repo rules leaked into core: {actual:?}");
     }
 
     /// Every emittable lint id must be unique across the union of
@@ -628,7 +644,7 @@ mod tests {
     #[test]
     fn builtin_lints_phase_helpers_concat_to_full() {
         let all = builtin_lints();
-        let by_phase: Vec<Box<dyn Lint>> = phase0_proof_of_concept()
+        let by_phase = phase0_proof_of_concept()
             .into_iter()
             .chain(phase1_packaging_essentials())
             .chain(phase2_correctness())
@@ -666,9 +682,10 @@ mod tests {
             .chain(phase25_files_cleanup())
             .chain(phase25_shell_body_cleanup())
             .chain(phase25_subpackage_style())
-            .chain(phase25_rich_dependency_algebra())
-            .chain(phase26_repo_aware())
-            .collect();
+            .chain(phase25_rich_dependency_algebra());
+        #[cfg(feature = "repo")]
+        let by_phase = by_phase.chain(phase26_repo_aware());
+        let by_phase: Vec<Box<dyn Lint>> = by_phase.collect();
         assert_eq!(all.len(), by_phase.len());
         let all_ids: Vec<&str> = all.iter().map(|l| l.metadata().id).collect();
         let by_phase_ids: Vec<&str> = by_phase.iter().map(|l| l.metadata().id).collect();

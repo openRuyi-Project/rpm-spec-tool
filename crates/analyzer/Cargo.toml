@@ -16,8 +16,8 @@ categories    = ["development-tools", "parser-implementations"]
 [dependencies]
 rpm-spec.workspace             = true
 rpm-spec-profile.workspace     = true
-rpm-spec-repo-core.workspace   = true
-rpm-spec-repo-resolver.workspace = true
+rpm-spec-repo-core     = { workspace = true, optional = true }
+rpm-spec-repo-resolver = { workspace = true, optional = true }
 schemars.workspace   = true
 serde.workspace      = true
 serde_json.workspace = true
@@ -35,21 +35,24 @@ directories = "5"
 tempfile = "3"
 
 [features]
+default = []
+# Enables repository-backed rules and the APIs that pass repository data into
+# analyzer sessions. The CLI opts in; SPEC-local library consumers need not.
+repo = ["dep:rpm-spec-repo-core", "dep:rpm-spec-repo-resolver"]
 # Exposes `crate::rules::repo::test_fixtures` (tiny RepoUniverse +
 # `redos_profile()`) as a public module so analyzer integration tests
-# can share fixtures with unit tests. Enabled automatically for the
-# `repo_lints_smoke` integration test via `required-features`.
-test-fixtures = []
+# can share fixtures with unit tests. This feature includes `repo` because the
+# fixtures and the integration test use repository APIs.
+test-fixtures = ["repo"]
 
 [[test]]
 name = "repo_lints_smoke"
 required-features = ["test-fixtures"]
 
-# Explicit empty feature list — must NOT use `all-features = true` because
-# that would enable `test-fixtures`, exposing `rules::repo::test_fixtures`
-# (an internal test-only module) as public API on docs.rs.
+# Document the supported repository API without exposing the internal
+# `test-fixtures` module through `all-features`.
 [package.metadata.docs.rs]
-features = []
+features = ["repo"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 

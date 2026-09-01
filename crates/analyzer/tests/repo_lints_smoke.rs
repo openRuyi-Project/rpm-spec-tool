@@ -13,9 +13,10 @@
 //! Fixture sharing: `tiny_universe()` + `redos_profile()` live in
 //! `rpm_spec_analyzer::rules::repo::test_fixtures`, exposed under
 //! the `test-fixtures` Cargo feature (declared as `required-features`
-//! on this test target — `cargo test` enables it automatically). The
-//! same helpers feed the per-rule unit tests in `src/rules/repo/`,
-//! so there's a single source of truth for the universe shape.
+//! on this test target). Cargo skips this target unless the feature is
+//! explicitly enabled. The same helpers feed the per-rule unit tests in
+//! `src/rules/repo/`, so there's a single source of truth for the universe
+//! shape.
 
 use std::path::Path;
 

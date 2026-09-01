@@ -257,6 +257,7 @@ pub mod richdep_singleton;
 // provided by the CLI / analyzer session and emit findings only when
 // at least one configured repo's metadata is cached. See
 // `repo/mod.rs` for the rule reference table.
+#[cfg(feature = "repo")]
 pub mod repo;
 
 pub(crate) mod util;
