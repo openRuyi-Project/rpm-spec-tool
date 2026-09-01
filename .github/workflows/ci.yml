@@ -24,6 +24,45 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
+  analyzer-configurations:
+    name: analyzer configurations (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-analyzer-configurations
+      - name: Check portable analyzer core
+        run: |
+          cargo test --locked -p rpm-spec-analyzer --no-default-features \
+            --lib registry::tests
+          cargo tree --locked -p rpm-spec-analyzer --no-default-features \
+            --edges normal,build > "$RUNNER_TEMP/analyzer-core-tree.txt"
+          if grep -E 'rpm-spec-repo-|rusqlite|libsqlite3-sys' \
+              "$RUNNER_TEMP/analyzer-core-tree.txt"; then
+            echo "::error::portable analyzer core includes repository dependencies" >&2
+            exit 1
+          fi
+      - name: Check analyzer repository support
+        run: |
+          cargo test --locked -p rpm-spec-analyzer --no-default-features \
+            --features repo --lib registry::tests
+      - name: Check standalone LSP
+        run: |
+          cargo check --locked -p rpm-spec-lsp
+          cargo tree --locked -p rpm-spec-lsp --edges normal,build \
+            > "$RUNNER_TEMP/lsp-tree.txt"
+          if grep -E 'rpm-spec-repo-|rusqlite|libsqlite3-sys' \
+              "$RUNNER_TEMP/lsp-tree.txt"; then
+            echo "::error::standalone LSP includes repository dependencies" >&2
+            exit 1
+          fi
+      - name: Check full CLI
+        run: cargo check --locked -p rpm-spec-tool
+      - name: Check full workspace
+        run: cargo check --locked --workspace --all-targets
+
   clippy:
     name: clippy
     runs-on: ubuntu-latest
