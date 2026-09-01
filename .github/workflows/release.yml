@@ -68,7 +68,9 @@ jobs:
           echo "TAG_VERSION=$TAG_VERSION" >> "$GITHUB_ENV"
 
       - name: Build release binaries
-        run: cargo build --release -p rpm-spec-tool -p rpm-spec-lsp
+        run: |
+          cargo build --release -p rpm-spec-tool
+          cargo build --release -p rpm-spec-lsp
 
       - name: Smoke-test binaries
         run: |
