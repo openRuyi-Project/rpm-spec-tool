@@ -24,8 +24,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use rpm_spec::ast::{
-    BuildScriptKind, ChangelogEntry, FileEntry, ScriptletKind, Section, ShellBody, Span, SpecFile,
-    SpecItem, SubpkgRef, Tag, TagValue, TextBody,
+    BuildScriptKind, BuildScriptPlacement, ChangelogEntry, FileEntry, ScriptletKind, Section,
+    ShellBody, Span, SpecFile, SpecItem, SubpkgRef, Tag, TagValue, TextBody,
 };
 use rpm_spec_profile::ResolvedTargetSet;
 use serde::Serialize;
@@ -111,7 +111,8 @@ pub struct ProfileImpact {
     /// One entry per tag in [`COMPARED_TAGS`], in the same order.
     pub tags: Vec<TagImpact>,
     /// Script-bearing sections (`%prep`, `%build`, `%install`,
-    /// `%check`, scriptlets, triggers, `%verify`, `%sepolicy`,
+    /// `%check`, their `-p` / `-a` fragments, scriptlets, triggers,
+    /// `%verify`, `%sepolicy`,
     /// `%description`, `%changelog`, `%files`, `%sourcelist`,
     /// `%patchlist`) whose body moved between `from` and `to`
     /// **as observed on this profile**. Shell-body changes inside an
@@ -148,11 +149,11 @@ impl ProfileImpact {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[non_exhaustive]
 pub struct ScriptSectionChange {
-    /// Section label as written in source: `"%install"`, `"%post"`,
-    /// `"%post libfoo"`, `"%post -n libfoo"`, `"%triggerin"`,
-    /// `"%filetriggerin"`, `"%verify"`, `"%sepolicy"`. Subpackage
-    /// modifiers are included so multi-scriptlet specs distinguish
-    /// the main package's `%post` from a subpackage's.
+    /// Canonical section label: `"%install"`, `"%install -p"`,
+    /// `"%install -a"`, `"%post"`, `"%post libfoo"`, `"%post -n libfoo"`,
+    /// `"%triggerin"`, `"%filetriggerin"`, `"%verify"`, `"%sepolicy"`.
+    /// Placement and subpackage modifiers keep distinct bodies in
+    /// distinct buckets.
     pub label: String,
     /// Lines present in `to` but not in `from`, **filtered to lines
     /// active on the enclosing profile**. A change inside an `%if`
@@ -382,6 +383,16 @@ fn buildscript_kind_label(k: BuildScriptKind) -> &'static str {
     }
 }
 
+fn buildscript_section_label(kind: BuildScriptKind, placement: BuildScriptPlacement) -> String {
+    let kind = buildscript_kind_label(kind);
+    match placement {
+        BuildScriptPlacement::Main => kind.to_string(),
+        BuildScriptPlacement::Prepend => format!("{kind} -p"),
+        BuildScriptPlacement::Append => format!("{kind} -a"),
+        _ => format!("{kind} <unknown-placement>"),
+    }
+}
+
 fn scriptlet_kind_label(k: ScriptletKind) -> &'static str {
     match k {
         ScriptletKind::Pre => "%pre",
@@ -438,8 +449,13 @@ fn collect_from_items(
 
 fn collect_from_section(section: &Section<Span>, out: &mut BTreeMap<String, Vec<String>>) {
     match section {
-        Section::BuildScript { kind, body, .. } => {
-            out.entry(buildscript_kind_label(*kind).to_string())
+        Section::BuildScript {
+            kind,
+            placement,
+            body,
+            ..
+        } => {
+            out.entry(buildscript_section_label(*kind, *placement))
                 .or_default()
                 .extend(render_shell_body_lines(body));
         }
@@ -646,7 +662,13 @@ fn collect_active_from_section(
     out: &mut Vec<String>,
 ) {
     match section {
-        Section::BuildScript { kind, body, data } if buildscript_kind_label(*kind) == label => {
+        Section::BuildScript {
+            kind,
+            placement,
+            body,
+            data,
+            ..
+        } if buildscript_section_label(*kind, *placement) == label => {
             out.extend(active_shell_lines(body, *data, coverage, profile_id));
         }
         Section::Scriptlet(s) => {
@@ -1175,6 +1197,27 @@ echo active_line
             !joined.contains("inactive_line"),
             "expected inactive branch filtered out; got: {joined:?}"
         );
+    }
+
+    #[test]
+    fn placement_change_is_reported_as_script_movement() {
+        const FROM: &str = "Name: foo\n%install -p\necho step\n";
+        let to = FROM.replace("%install -p", "%install -a");
+        let report = report(FROM, &to, &["rhel-9-x86_64"]);
+        let changes = &report.per_profile[0].script_sections;
+        assert_eq!(changes.len(), 2, "unexpected changes: {changes:?}");
+        let prepend = changes
+            .iter()
+            .find(|change| change.label == "%install -p")
+            .expect("prepend removal reported");
+        let append = changes
+            .iter()
+            .find(|change| change.label == "%install -a")
+            .expect("append addition reported");
+
+        assert_eq!((prepend.added, prepend.removed), (0, 1));
+        assert_eq!((append.added, append.removed), (1, 0));
+        assert!(!report.is_no_change());
     }
 
     #[test]

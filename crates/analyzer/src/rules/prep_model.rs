@@ -29,6 +29,7 @@ fn find_prep_section(spec: &SpecFile<Span>) -> Option<(&ShellBody<Span>, Span)> 
                 kind: BuildScriptKind::Prep,
                 body,
                 data,
+                ..
             } = boxed.as_ref()
         {
             return Some((body, *data));
@@ -53,6 +54,13 @@ mod tests {
     fn find_prep_body_returns_none_without_prep() {
         let outcome = parse("Name: x\n");
         assert!(find_prep_body(&outcome.spec).is_none());
+    }
+
+    #[test]
+    fn find_prep_body_accepts_append_fragment() {
+        let outcome = parse("Name: x\n%prep -a\n%autosetup -p1\n");
+        let body = find_prep_body(&outcome.spec).expect("prep fragment present");
+        assert!(!body.lines.is_empty());
     }
 
     #[test]

@@ -472,7 +472,10 @@ fn collect_active_build_scripts_inner<'a>(
         match item {
             #[allow(clippy::collapsible_match)]
             SpecItem::Section(boxed) => {
-                if let Section::BuildScript { kind, body, data } = boxed.as_ref() {
+                if let Section::BuildScript {
+                    kind, body, data, ..
+                } = boxed.as_ref()
+                {
                     out.push((*kind, body, *data));
                 }
             }

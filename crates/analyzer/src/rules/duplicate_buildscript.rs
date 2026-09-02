@@ -1,13 +1,13 @@
-//! RPM023 `duplicate-buildscript-section` — rpm silently keeps **only
-//! one** body for each build-script kind (`%prep`, `%build`, `%install`,
-//! `%check`, etc.). Declaring two `%build` sections is a copy-paste
-//! mistake; the earlier body is dead code.
+//! RPM023 `duplicate-buildscript-section` — each build-script kind
+//! (`%prep`, `%build`, `%install`, `%check`, etc.) accepts only one
+//! unflagged main section. `-p` / `-a` fragments are repeatable and do
+//! not count as another main section.
 //!
 //! Only top-level sections are counted. The rule is global (not
 //! subpackage-aware) because build-script sections themselves are
 //! global — rpm doesn't honour `%build` inside `%package`.
 
-use rpm_spec::ast::{BuildScriptKind, Section, Span, SpecFile, SpecItem};
+use rpm_spec::ast::{BuildScriptKind, BuildScriptPlacement, Section, Span, SpecFile, SpecItem};
 
 use crate::diagnostic::{Diagnostic, LintCategory, Severity};
 use crate::lint::{Lint, LintMetadata};
@@ -16,12 +16,12 @@ use crate::visit::Visit;
 pub static METADATA: LintMetadata = LintMetadata {
     id: "RPM023",
     name: "duplicate-buildscript-section",
-    description: "Spec declares the same build-script section (%prep/%build/%install/...) more than once.",
+    description: "Spec declares more than one unflagged main section for the same build-script kind.",
     default_severity: Severity::Deny,
     category: LintCategory::Packaging,
 };
 
-/// Spec declares the same build-script section (%prep/%build/%install/...) more than once.
+/// Spec declares more than one unflagged main section for the same build-script kind.
 ///
 /// See [`METADATA`] for the rule's ID, name, default severity, and
 /// category.
@@ -41,29 +41,38 @@ impl<'ast> Visit<'ast> for DuplicateBuildscriptSection {
         // `BuildScriptKind` has only 7 variants so a small linear-scan
         // Vec is both simpler and faster than a HashMap (and the AST
         // type doesn't derive Hash).
-        let mut seen: Vec<(BuildScriptKind, Span)> = Vec::new();
+        let mut seen_main: Vec<(BuildScriptKind, Span)> = Vec::new();
         for item in &spec.items {
             let SpecItem::Section(boxed) = item else {
                 continue;
             };
-            let Section::BuildScript { kind, data, .. } = boxed.as_ref() else {
+            let Section::BuildScript {
+                kind,
+                placement,
+                data,
+                ..
+            } = boxed.as_ref()
+            else {
                 continue;
             };
-            if let Some(&(_, first)) = seen.iter().find(|(k, _)| k == kind) {
+            if *placement != BuildScriptPlacement::Main {
+                continue;
+            }
+            if let Some(&(_, first)) = seen_main.iter().find(|(k, _)| k == kind) {
                 self.diagnostics.push(
                     Diagnostic::new(
                         &METADATA,
                         Severity::Deny,
                         format!(
-                            "duplicate {} section; rpm honours only one body",
+                            "duplicate main {} section; only one unflagged body is allowed",
                             section_keyword(*kind)
                         ),
                         *data,
                     )
-                    .with_label(first, "first declaration here"),
+                    .with_label(first, "first main section here"),
                 );
             } else {
-                seen.push((*kind, *data));
+                seen_main.push((*kind, *data));
             }
         }
     }
@@ -109,6 +118,18 @@ mod tests {
         assert_eq!(diags[0].lint_id, "RPM023");
         assert!(diags[0].message.contains("%build"));
         assert_eq!(diags[0].labels.len(), 1);
+    }
+
+    #[test]
+    fn allows_main_with_placement_fragments() {
+        let src = "Name: x\n%build -p\necho before\n%build\nmake\n%build -a\necho after\n";
+        assert!(run(src).is_empty());
+    }
+
+    #[test]
+    fn allows_repeated_placement_fragments_without_main() {
+        let src = "Name: x\n%install -a\necho first\n%install -a\necho second\n";
+        assert!(run(src).is_empty());
     }
 
     #[test]

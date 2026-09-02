@@ -110,7 +110,9 @@ where
     F: FnMut(BodyLocation, &'ast ShellBody<Span>),
 {
     match section {
-        Section::BuildScript { kind, body, data } => {
+        Section::BuildScript {
+            kind, body, data, ..
+        } => {
             f(
                 BodyLocation::BuildScript {
                     kind: *kind,

@@ -15,8 +15,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   dependencies, rules, and `RepoUniverse` APIs require the optional
   `repo` feature; the full CLI enables it explicitly, while the LSP dependency
   does not.
+- The workspace now uses a pinned openRuyi `rpm-spec` revision that preserves
+  `Main`, `Prepend`, and `Append` build-script placement. Registry publishing
+  for the analyzer and CLI is paused until the same API is available from a
+  registry release.
 
 ### Fixed
+
+- `RPM023` accepts repeatable `-p` / `-a` build-script fragments while still
+  rejecting a second unflagged main section.
+- AST output, analyzer helpers, and matrix script-section comparisons preserve
+  build-script placement instead of merging `%install`, `%install -p`, and
+  `%install -a`.
 
 ## [0.1.3] - 2026-05-21
 

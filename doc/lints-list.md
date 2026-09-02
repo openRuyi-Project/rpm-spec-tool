@@ -91,7 +91,7 @@
 | RPM020 | `obsolete-tag` | warn | Preamble uses a tag that's deprecated or forbidden by modern packaging guidelines. |
 | RPM021 | `deprecated-clean-section` | warn | The %clean section is unnecessary; modern rpm cleans the buildroot automatically. |
 | RPM022 | `multiple-changelog-sections` | deny | Spec file declares more than one top-level %changelog section. rpm processes only the first one and silently drops the rest. Note: %changelog blocks nested inside %if/%endif are ignored on purpose — they're rare and usually intentional cross-distro patterns. |
-| RPM023 | `duplicate-buildscript-section` | deny | Spec declares the same build-script section (%prep/%build/%install/...) more than once. |
+| RPM023 | `duplicate-buildscript-section` | deny | Spec declares more than one unflagged main section for the same build-script kind. |
 | RPM024 | `invalid-license` | warn | License: must name a license from the profile's allow-list. |
 | RPM025 | `non-standard-group` | warn | Group: must name a group from the profile's allow-list. |
 | RPM127 | `legacy-license-syntax` | warn | Fedora ≥ 40 mandates SPDX-only license identifiers; legacy short forms (`GPLv2+`, `BSD`, …) are no longer accepted. |

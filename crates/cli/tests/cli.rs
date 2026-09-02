@@ -83,6 +83,45 @@ fn version_flag_exits_zero() {
 }
 
 #[test]
+fn ast_json_preserves_build_script_placement() {
+    let src = "Name: x\n\
+%install -p\n\
+echo before\n\
+%install\n\
+echo main\n\
+%install -a\n\
+echo after\n";
+    let (code, stdout, stderr) = run(&["ast", "--format", "json"], Some(src));
+    assert_eq!(code, 0, "stderr={stderr}\nstdout={stdout}");
+
+    let ast: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("invalid JSON: {error}"));
+    let scripts: Vec<_> = ast["items"]
+        .as_array()
+        .expect("AST items array")
+        .iter()
+        .filter_map(|item| item.get("Section")?.get("BuildScript"))
+        .map(|script| {
+            (
+                script["kind"].as_str().expect("build-script kind"),
+                script["placement"]
+                    .as_str()
+                    .expect("build-script placement"),
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        scripts,
+        vec![
+            ("Install", "Prepend"),
+            ("Install", "Main"),
+            ("Install", "Append"),
+        ]
+    );
+}
+
+#[test]
 fn lint_default_warn_exits_zero() {
     let spec = write_temp(MISSING_CHANGELOG_SPEC);
     let (code, stdout, stderr) = run(&["lint", spec.path().to_str().unwrap()], None);
