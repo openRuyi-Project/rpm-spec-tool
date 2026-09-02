@@ -1072,6 +1072,22 @@ mod tests {
     }
 
     #[test]
+    fn session_applies_shellcheck_severity_to_unavailability() {
+        let src = "%install\nmkdir -p /tmp\n";
+        let mut cfg = Config::default();
+        cfg.lints.insert("shellcheck".into(), Severity::Deny);
+        cfg.lints.insert("RPM201".into(), Severity::Allow);
+        cfg.shellcheck.binary = Some("/nonexistent/shellcheck-binary".into());
+
+        let (_, diagnostics) = crate::session::analyze(src, &cfg);
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.lint_id == "RPM201")
+            .expect("RPM201 expected");
+        assert_eq!(diagnostic.severity, Severity::Deny);
+    }
+
+    #[test]
     fn build_finding_diagnostics_handles_out_of_range_line() {
         // Regression: a malformed shellcheck stream reporting a line
         // number past line_map.len() must still produce a diagnostic

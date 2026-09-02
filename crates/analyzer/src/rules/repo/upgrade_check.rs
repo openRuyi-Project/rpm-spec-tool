@@ -440,6 +440,53 @@ mod tests {
     }
 
     #[test]
+    fn session_filters_combined_visitor_diagnostics_by_id() {
+        let universe = universe_with(vec![pkg(
+            "foo",
+            2,
+            "1.0",
+            "1",
+            "x86_64",
+            "foo-1.0-1.src.rpm",
+        )]);
+        let profile = redos_profile();
+        let src = spec_src("foo", "1.0", "1", "");
+        let outcome = crate::session::parse(&src);
+        let mut config = crate::config::Config::default();
+        config.lints.insert("RPM-REPO-030".into(), Severity::Allow);
+        let mut session = crate::session::LintSession::from_config_with_profile_and_universe(
+            &config,
+            profile,
+            Some(Arc::clone(&universe)),
+        );
+
+        let diagnostics = session.run(&outcome.spec, &src);
+        let upgrade_ids: Vec<_> = diagnostics
+            .iter()
+            .filter(|diagnostic| matches!(diagnostic.lint_id, "RPM-REPO-030" | "RPM-REPO-031"))
+            .map(|diagnostic| (diagnostic.lint_id, diagnostic.severity))
+            .collect();
+        assert_eq!(upgrade_ids, [("RPM-REPO-031", Severity::Deny)]);
+
+        let mut config = crate::config::Config::default();
+        config.lints.insert("RPM-REPO-030".into(), Severity::Warn);
+        config.lints.insert("RPM-REPO-031".into(), Severity::Allow);
+        let mut session = crate::session::LintSession::from_config_with_profile_and_universe(
+            &config,
+            redos_profile(),
+            Some(universe),
+        );
+
+        let diagnostics = session.run(&outcome.spec, &src);
+        let upgrade_ids: Vec<_> = diagnostics
+            .iter()
+            .filter(|diagnostic| matches!(diagnostic.lint_id, "RPM-REPO-030" | "RPM-REPO-031"))
+            .map(|diagnostic| (diagnostic.lint_id, diagnostic.severity))
+            .collect();
+        assert_eq!(upgrade_ids, [("RPM-REPO-030", Severity::Warn)]);
+    }
+
+    #[test]
     fn epoch_match_silent() {
         let uni = universe_with(vec![pkg(
             "foo",

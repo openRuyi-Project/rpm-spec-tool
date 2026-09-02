@@ -83,7 +83,7 @@ category (correctness, packaging, style, performance).
 Lint behaviour is driven by `rpm_spec_analyzer::config::Config`:
 
 - `lints: BTreeMap<String, Severity>` — per-lint severity overrides
-  (`allow` / `warn` / `deny`), keyed by kebab-case lint name.
+  (`allow` / `warn` / `deny`), keyed by stable rule ID or kebab-case name.
 - `profile: Option<String>` plus `profiles: BTreeMap<String, ProfileEntry>` —
   the active distribution profile and any user-defined entries.
 - `shellcheck: ShellcheckConfig` — binary path, per-`SC` enable / disable

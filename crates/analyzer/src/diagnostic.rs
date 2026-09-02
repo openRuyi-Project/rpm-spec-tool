@@ -1,8 +1,8 @@
 //! Diagnostic types produced by lint rules.
 //!
-//! `Severity` here is the *configured* level (`Allow`/`Warn`/`Deny`). Rules
-//! whose configured severity is `Allow` are never run, so a `Diagnostic`
-//! observed by a consumer always carries `Warn` or `Deny`.
+//! `Severity` here is the *configured* level (`Allow`/`Warn`/`Deny`). Findings
+//! configured as `Allow` are filtered before they reach consumers, so an
+//! observed `Diagnostic` always carries `Warn` or `Deny`.
 
 use rpm_spec::ast::Span;
 use schemars::JsonSchema;

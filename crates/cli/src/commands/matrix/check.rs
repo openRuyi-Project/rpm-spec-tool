@@ -72,19 +72,19 @@ pub struct CheckOpts {
     #[arg(long = "profiles", value_name = "P1,P2,...", value_delimiter = ',')]
     pub profiles: Vec<String>,
 
-    /// Override lint severity to `deny` for the named rule. Repeatable.
+    /// Override lint severity to `deny` for a rule ID or name. Repeatable.
     /// The `warnings` meta-name (clippy convention) promotes every
     /// `warn` to `deny`.
     #[arg(long = "deny", value_name = "LINT")]
     pub deny: Vec<String>,
 
-    /// Override lint severity to `warn` for the named rule. Repeatable.
+    /// Override lint severity to `warn` for a rule ID or name. Repeatable.
     #[arg(long = "warn", value_name = "LINT")]
     pub warn: Vec<String>,
 
-    /// Override lint severity to `allow` (silence) for the named rule.
-    /// Repeatable. The `warnings` meta-name clears any earlier
-    /// `--deny warnings` promotion.
+    /// Override lint severity to `allow` (silence) for a rule ID or name.
+    /// Repeatable. The `warnings` meta-name disables warning promotion
+    /// unless `--deny warnings` is also present; deny wins.
     #[arg(long = "allow", value_name = "LINT")]
     pub allow: Vec<String>,
 

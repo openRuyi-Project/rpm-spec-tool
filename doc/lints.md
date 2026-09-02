@@ -20,22 +20,26 @@ Default severities are split three ways:
 | `warn`   | yes       | no           | reported but doesn't gate the run. |
 | `deny`   | yes       | **yes**      | reported *and* makes `lint` / `check` exit `1`. |
 
-The active severity for each rule is the **last write** in this
-precedence ladder:
+The active severity for each rule follows this precedence ladder;
+later sources win:
 
 1. Built-in default in the registry.
 2. `[lints]` table in `rpmspec.toml` — keys are rule IDs (`RPM031`)
    or short names (`missing-changelog`); values are
-   `"allow" | "warn" | "deny"`.
+   `"allow" | "warn" | "deny"`. If both forms target the same rule,
+   the stable ID wins.
 3. CLI overrides: `--deny LINT`, `--warn LINT`, `--allow LINT`.
-   Repeatable; CLI always wins.
+   Repeatable; CLI always wins. If one rule appears in multiple groups,
+   fixed `allow` → `warn` → `deny` group order applies, so `deny` wins
+   regardless of argument order.
 
 Two special meta-names — clippy convention:
 
 * `--deny warnings` promotes **every** `warn` rule to `deny`, useful
   in CI to gate on any warning while still allowing `--allow LINT` to
   silence specific rules individually.
-* `--allow warnings` clears any earlier `--deny warnings`.
+* `--allow warnings` disables the promotion when used alone. If both
+  `--allow warnings` and `--deny warnings` are present, `deny` wins.
 
 Example — promote everything to deny, then silence two known-noisy
 rules:

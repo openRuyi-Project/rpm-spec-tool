@@ -140,6 +140,11 @@ pub struct Config {
     /// stable. Rules explicitly demoted to `Allow` keep that level.
     #[serde(skip)]
     pub warnings_as_errors: bool,
+    /// CLI overrides are kept separate from TOML so either a rule ID
+    /// or name can override the other spelling used by the config.
+    #[serde(skip)]
+    #[schemars(skip)]
+    cli_overrides: Vec<(String, Severity)>,
 }
 
 /// Shell dialect accepted by `shellcheck --shell=<dialect>`. Mirrors
@@ -264,8 +269,11 @@ impl Config {
         rpm_spec_profile::resolve_profile(&section, base_dir, opts)
     }
 
-    /// Resolve the configured severity for a lint by its kebab-case name,
+    /// Resolve the configured severity for a lint by its ID and name,
     /// falling back to the rule's default if the user did not override it.
+    ///
+    /// CLI overrides win over TOML regardless of which spelling each
+    /// source uses. Within TOML, the stable ID wins when both keys exist.
     ///
     /// Honours [`Self::warnings_as_errors`]: when set, *any* resolved
     /// `Warn` is promoted to `Deny`. This includes
@@ -280,8 +288,17 @@ impl Config {
     /// Pinning a specific lint at Warn under `-D warnings` therefore
     /// requires `--allow LINT` (an explicit `Allow` override is *not*
     /// promoted — the user clearly meant "suppress").
-    pub fn severity_for(&self, lint_name: &str, default: Severity) -> Severity {
-        let resolved = self.lints.get(lint_name).copied().unwrap_or(default);
+    pub fn severity_for(&self, lint_id: &str, lint_name: &str, default: Severity) -> Severity {
+        let resolved = self
+            .cli_overrides
+            .iter()
+            .rev()
+            .find_map(|(selector, severity)| {
+                (selector == lint_id || selector == lint_name).then_some(*severity)
+            })
+            .or_else(|| self.lints.get(lint_id).copied())
+            .or_else(|| self.lints.get(lint_name).copied())
+            .unwrap_or(default);
         if self.warnings_as_errors && resolved == Severity::Warn {
             Severity::Deny
         } else {
@@ -289,7 +306,7 @@ impl Config {
         }
     }
 
-    /// Force the given lints to `severity`, replacing any previous setting.
+    /// Set config-level severity overrides for the given lint selectors.
     pub fn apply_overrides<S: AsRef<str>>(&mut self, lint_names: &[S], severity: Severity) {
         for n in lint_names {
             self.lints.insert(n.as_ref().to_owned(), severity);
@@ -298,6 +315,7 @@ impl Config {
 
     /// Apply CLI severity overrides in the conventional clippy-style
     /// order: `allow` first, then `warn`, then `deny`.
+    /// CLI values stay separate from the serializable [`Self::lints`] map.
     ///
     /// Resolution rules:
     /// * **Across lists:** later groups override earlier ones, so a lint
@@ -306,20 +324,32 @@ impl Config {
     ///   (e.g. `--deny foo --deny foo` is no different from one flag).
     /// * **`warnings` is a meta-name** in any list: `--deny warnings`
     ///   sets [`Self::warnings_as_errors`], `--allow warnings` clears
-    ///   it, `--warn warnings` is a no-op (the default). The literal
-    ///   string is not registered as a lint name.
+    ///   it, and `--warn warnings` is a no-op (the default). If both
+    ///   allow and deny contain it, deny wins with the same group order.
+    ///   The literal string is not registered as a lint name.
     pub fn apply_cli_overrides<S: AsRef<str>>(&mut self, allow: &[S], warn: &[S], deny: &[S]) {
         // Split meta-name `warnings` out of each list before applying
-        // per-lint overrides. Order matters: allow first, warn (no-op
-        // on the meta), deny last — so `--deny warnings --allow warnings`
-        // ends up with `warnings_as_errors=false` (last-write-wins).
+        // per-lint overrides. Groups use fixed allow -> warn -> deny
+        // precedence, independent of their order in the command line.
         let (allow_lints, allow_meta) = split_warnings_meta(allow);
         let (warn_lints, warn_meta) = split_warnings_meta(warn);
         let (deny_lints, deny_meta) = split_warnings_meta(deny);
 
-        self.apply_overrides(&allow_lints, Severity::Allow);
-        self.apply_overrides(&warn_lints, Severity::Warn);
-        self.apply_overrides(&deny_lints, Severity::Deny);
+        self.cli_overrides.extend(
+            allow_lints
+                .into_iter()
+                .map(|selector| (selector, Severity::Allow)),
+        );
+        self.cli_overrides.extend(
+            warn_lints
+                .into_iter()
+                .map(|selector| (selector, Severity::Warn)),
+        );
+        self.cli_overrides.extend(
+            deny_lints
+                .into_iter()
+                .map(|selector| (selector, Severity::Deny)),
+        );
 
         // Meta-name resolution mirrors the same allow→warn→deny order.
         if allow_meta {
@@ -395,7 +425,7 @@ preamble-align-column = 20
 "#;
         let cfg = Config::from_toml_str(toml_str).unwrap();
         assert_eq!(
-            cfg.severity_for("missing-changelog", Severity::Warn),
+            cfg.severity_for("RPM001", "missing-changelog", Severity::Warn),
             Severity::Deny
         );
         assert_eq!(cfg.format.preamble_align_column, 20);
@@ -412,8 +442,14 @@ preamble-align-column = 20
         let mut cfg = Config::default();
         cfg.lints.insert("foo".into(), Severity::Warn);
         cfg.apply_overrides(&["foo", "bar"], Severity::Deny);
-        assert_eq!(cfg.severity_for("foo", Severity::Allow), Severity::Deny);
-        assert_eq!(cfg.severity_for("bar", Severity::Allow), Severity::Deny);
+        assert_eq!(
+            cfg.severity_for("TEST_FOO", "foo", Severity::Allow),
+            Severity::Deny
+        );
+        assert_eq!(
+            cfg.severity_for("TEST_BAR", "bar", Severity::Allow),
+            Severity::Deny
+        );
     }
 
     #[test]
@@ -431,14 +467,78 @@ preamble-align-column = 20
         // Same lint listed in both `allow` and `deny`: deny applies last
         // and must win.
         cfg.apply_cli_overrides::<&str>(&["foo"], &[], &["foo"]);
-        assert_eq!(cfg.severity_for("foo", Severity::Warn), Severity::Deny);
+        assert_eq!(
+            cfg.severity_for("TEST_FOO", "foo", Severity::Warn),
+            Severity::Deny
+        );
     }
 
     #[test]
     fn cli_overrides_priority_warn_over_allow() {
         let mut cfg = Config::default();
         cfg.apply_cli_overrides::<&str>(&["bar"], &["bar"], &[]);
-        assert_eq!(cfg.severity_for("bar", Severity::Deny), Severity::Warn);
+        assert_eq!(
+            cfg.severity_for("TEST_BAR", "bar", Severity::Deny),
+            Severity::Warn
+        );
+    }
+
+    #[test]
+    fn cli_group_priority_deny_wins_across_aliases() {
+        let mut cfg = Config::default();
+        cfg.apply_cli_overrides::<&str>(&["RPM001"], &[], &["missing-changelog"]);
+        assert_eq!(
+            cfg.severity_for("RPM001", "missing-changelog", Severity::Warn),
+            Severity::Deny
+        );
+
+        let mut cfg = Config::default();
+        cfg.apply_cli_overrides::<&str>(&["missing-changelog"], &[], &["RPM001"]);
+        assert_eq!(
+            cfg.severity_for("RPM001", "missing-changelog", Severity::Warn),
+            Severity::Deny
+        );
+    }
+
+    #[test]
+    fn cli_alias_overrides_toml_and_later_calls_win() {
+        let mut cfg = Config::default();
+        cfg.lints.insert("RPM001".into(), Severity::Deny);
+        cfg.apply_cli_overrides::<&str>(&["missing-changelog"], &[], &[]);
+        assert_eq!(
+            cfg.severity_for("RPM001", "missing-changelog", Severity::Warn),
+            Severity::Allow
+        );
+
+        let mut cfg = Config::default();
+        cfg.lints
+            .insert("missing-changelog".into(), Severity::Allow);
+        cfg.apply_cli_overrides::<&str>(&[], &[], &["RPM001"]);
+        assert_eq!(
+            cfg.severity_for("RPM001", "missing-changelog", Severity::Warn),
+            Severity::Deny
+        );
+        cfg.apply_cli_overrides::<&str>(&["missing-changelog"], &[], &[]);
+        assert_eq!(
+            cfg.severity_for("RPM001", "missing-changelog", Severity::Warn),
+            Severity::Allow
+        );
+    }
+
+    #[test]
+    fn toml_id_wins_when_both_aliases_are_present() {
+        let config = Config::from_toml_str(
+            r#"
+[lints]
+RPM001 = "allow"
+missing-changelog = "deny"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            config.severity_for("RPM001", "missing-changelog", Severity::Warn),
+            Severity::Allow
+        );
     }
 
     // ----- `-D warnings` (clippy-style meta) -----
@@ -449,16 +549,19 @@ preamble-align-column = 20
         cfg.apply_cli_overrides::<&str>(&[], &[], &["warnings"]);
         // Default-Warn rule becomes Deny under the meta.
         assert_eq!(
-            cfg.severity_for("missing-changelog", Severity::Warn),
+            cfg.severity_for("RPM001", "missing-changelog", Severity::Warn),
             Severity::Deny
         );
         // Default-Allow stays Allow (silenced is silenced).
         assert_eq!(
-            cfg.severity_for("opt-in-rule", Severity::Allow),
+            cfg.severity_for("TEST_OPT_IN", "opt-in-rule", Severity::Allow),
             Severity::Allow
         );
         // Default-Deny stays Deny.
-        assert_eq!(cfg.severity_for("must-fix", Severity::Deny), Severity::Deny);
+        assert_eq!(
+            cfg.severity_for("TEST_MUST_FIX", "must-fix", Severity::Deny),
+            Severity::Deny
+        );
         // No `"warnings"` entry leaked into the lint table.
         assert!(!cfg.lints.contains_key("warnings"));
     }
@@ -468,9 +571,15 @@ preamble-align-column = 20
         let mut cfg = Config::default();
         // `--allow foo --deny warnings` — foo stays silenced.
         cfg.apply_cli_overrides::<&str>(&["foo"], &[], &["warnings"]);
-        assert_eq!(cfg.severity_for("foo", Severity::Warn), Severity::Allow);
+        assert_eq!(
+            cfg.severity_for("TEST_FOO", "foo", Severity::Warn),
+            Severity::Allow
+        );
         // Other rules promote normally.
-        assert_eq!(cfg.severity_for("bar", Severity::Warn), Severity::Deny);
+        assert_eq!(
+            cfg.severity_for("TEST_BAR", "bar", Severity::Warn),
+            Severity::Deny
+        );
     }
 
     #[test]
@@ -480,7 +589,7 @@ preamble-align-column = 20
         cfg.apply_cli_overrides::<&str>(&["warnings"], &[], &[]);
         assert!(!cfg.warnings_as_errors);
         assert_eq!(
-            cfg.severity_for("missing-changelog", Severity::Warn),
+            cfg.severity_for("RPM001", "missing-changelog", Severity::Warn),
             Severity::Warn
         );
     }

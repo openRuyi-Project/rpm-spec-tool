@@ -203,6 +203,20 @@ fn lint_allow_override_silences_diagnostic() {
 }
 
 #[test]
+fn lint_allow_id_silences_diagnostic() {
+    let spec = write_temp(MISSING_CHANGELOG_SPEC);
+    let (code, stdout, _) = run(
+        &["lint", "--allow", "RPM001", spec.path().to_str().unwrap()],
+        None,
+    );
+    assert_eq!(code, 0);
+    assert!(
+        !stdout.contains("missing-changelog"),
+        "diagnostic should be suppressed by ID; got: {stdout}"
+    );
+}
+
+#[test]
 fn lint_nonexistent_file_exits_two() {
     let (code, _, stderr) = run(&["lint", "/nonexistent/path.spec"], None);
     // anyhow surfacing the IO error goes through main, which exits 2.

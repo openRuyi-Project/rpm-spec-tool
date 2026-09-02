@@ -36,7 +36,7 @@ pub struct Cmd {
     #[arg(long, default_value_t = OutputFormat::Human, value_enum)]
     pub format: OutputFormat,
 
-    /// Override the configured severity to `deny` for the named lint.
+    /// Override the configured severity to `deny` for a rule ID or name.
     /// Repeatable. The special name `warnings` (clippy convention)
     /// promotes every `warn`-level rule to `deny` — `--deny warnings`
     /// makes lint exit non-zero on any warning while still allowing
@@ -44,14 +44,14 @@ pub struct Cmd {
     #[arg(long = "deny", value_name = "LINT")]
     pub deny: Vec<String>,
 
-    /// Override the configured severity to `warn` for the named lint.
+    /// Override the configured severity to `warn` for a rule ID or name.
     /// Repeatable.
     #[arg(long = "warn", value_name = "LINT")]
     pub warn: Vec<String>,
 
-    /// Override the configured severity to `allow` for the named lint.
-    /// Repeatable. The special name `warnings` clears any earlier
-    /// `--deny warnings` promotion.
+    /// Override the configured severity to `allow` for a rule ID or name.
+    /// Repeatable. The special name `warnings` disables warning
+    /// promotion unless `--deny warnings` is also present; deny wins.
     #[arg(long = "allow", value_name = "LINT")]
     pub allow: Vec<String>,
 

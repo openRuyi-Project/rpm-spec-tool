@@ -22,6 +22,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Lint severity overrides now accept stable diagnostic IDs as well as rule
+  names across TOML, CLI, parser diagnostics, and combined repo visitors. CLI
+  overrides remain runtime-only instead of rewriting the config's lint map.
 - `RPM023` accepts repeatable `-p` / `-a` build-script fragments while still
   rejecting a second unflagged main section.
 - AST output, analyzer helpers, and matrix script-section comparisons preserve

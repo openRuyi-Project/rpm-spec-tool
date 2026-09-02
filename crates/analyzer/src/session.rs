@@ -278,7 +278,11 @@ pub(crate) fn bridge_parser_diagnostics(
         let Some(entry) = BRIDGE.iter().find(|e| e.parser_code == code) else {
             continue;
         };
-        let severity = config.severity_for(entry.metadata.name, entry.metadata.default_severity);
+        let severity = config.severity_for(
+            entry.metadata.id,
+            entry.metadata.name,
+            entry.metadata.default_severity,
+        );
         if severity.is_silenced() {
             continue;
         }
@@ -302,8 +306,8 @@ pub struct LintSession {
 
 struct ActiveLint {
     lint: Box<dyn Lint>,
-    /// Severity resolved from `Config` (or the rule's default).
-    severity: Severity,
+    /// Resolved severity for each diagnostic ID this visitor may emit.
+    severities: Vec<(&'static str, Severity)>,
 }
 
 impl std::fmt::Debug for LintSession {
@@ -315,8 +319,8 @@ impl std::fmt::Debug for LintSession {
 }
 
 impl LintSession {
-    /// Build a session from a parsed `Config`. Rules whose configured
-    /// severity is `Allow` are dropped at construction so they never run.
+    /// Build a session from a parsed `Config`. Visitors whose diagnostic IDs
+    /// all resolve to `Allow` are dropped at construction so they never run.
     ///
     /// Uses an empty default [`Profile`]. Callers that want a real
     /// distribution profile (`[profiles.*]` from `.rpmspec.toml`, plus
@@ -378,12 +382,23 @@ impl LintSession {
         let mut active: Vec<ActiveLint> = Vec::new();
         for mut lint in registry::builtin_lints() {
             let meta = lint.metadata();
-            let sev = config.severity_for(meta.name, meta.default_severity);
-            if sev.is_silenced() {
+            let severities: Vec<_> = std::iter::once(meta)
+                .chain(lint.additional_metadata().iter().copied())
+                .map(|metadata| {
+                    (
+                        metadata.id,
+                        config.severity_for(metadata.id, metadata.name, metadata.default_severity),
+                    )
+                })
+                .collect();
+            if severities
+                .iter()
+                .all(|(_, severity)| severity.is_silenced())
+            {
                 tracing::debug!(
                     rule = meta.name,
                     rule_id = meta.id,
-                    "rule skipped: severity silenced"
+                    "rule skipped: all diagnostic severities silenced"
                 );
                 continue;
             }
@@ -402,10 +417,7 @@ impl LintSession {
             }
             lint.set_config(config);
             lint.set_profile(&profile);
-            active.push(ActiveLint {
-                lint,
-                severity: sev,
-            });
+            active.push(ActiveLint { lint, severities });
         }
         // `profile` is dropped here; rules have already copied whatever
         // fields they need into their own state via `Lint::set_profile`.
@@ -441,11 +453,20 @@ impl LintSession {
         // dominant allocation cost for large specs otherwise.
         let shared: std::sync::Arc<str> = std::sync::Arc::from(source);
         let mut out = Vec::new();
-        for ActiveLint { lint, severity } in &mut self.lints {
+        for ActiveLint { lint, severities } in &mut self.lints {
             lint.set_source(std::sync::Arc::clone(&shared));
             lint.visit_spec(spec);
             for mut diag in lint.take_diagnostics() {
-                diag.severity = *severity;
+                let severity = severities
+                    .iter()
+                    .find_map(|(id, severity)| (*id == diag.lint_id).then_some(*severity))
+                    // Auxiliary diagnostics such as RPM201 intentionally
+                    // inherit the visitor's primary severity.
+                    .unwrap_or(severities[0].1);
+                if severity.is_silenced() {
+                    continue;
+                }
+                diag.severity = severity;
                 resolve_diagnostic_lines(&mut diag, source, &line_table);
                 out.push(diag);
             }
@@ -582,7 +603,7 @@ mod tests {
         probe_box.set_profile(&profile);
         session.lints.push(ActiveLint {
             lint: probe_box,
-            severity: Severity::Warn,
+            severities: vec![(META.id, Severity::Warn)],
         });
 
         assert_eq!(*captured.lock().unwrap(), Some(Family::Rhel));
@@ -685,7 +706,7 @@ mod tests {
                 set_profile_calls: Arc::new(AtomicUsize::new(0)),
                 applies: true,
             }),
-            severity: Severity::Warn,
+            severities: vec![(META.id, Severity::Warn)],
         });
         let parsed = parse(src);
         session.run(&parsed.spec, src);
@@ -698,9 +719,8 @@ mod tests {
         // We invoke the gate manually below because `LintSession::from_config_with_profile`
         // only accepts rules from `registry::builtin_lints()` and there's
         // no public hook to inject a custom probe through that path. The
-        // manual sequence here mirrors the session's exact ordering at
-        // `session.rs:316-331` — if that order ever changes, this test
-        // must change with it.
+        // manual sequence here mirrors the session's construction
+        // order — if that order changes, this test must change with it.
         let fired_off = Arc::new(AtomicBool::new(false));
         let set_config_off = Arc::new(AtomicUsize::new(0));
         let set_profile_off = Arc::new(AtomicUsize::new(0));
@@ -711,14 +731,14 @@ mod tests {
             set_profile_calls: Arc::clone(&set_profile_off),
             applies: false,
         });
-        // Mirror the production order at session.rs:316-331:
-        // applies_to_profile runs BEFORE set_config / set_profile.
+        // Mirror the production order: applies_to_profile runs before
+        // set_config and set_profile.
         if probe.applies_to_profile(&profile) {
             probe.set_config(&cfg);
             probe.set_profile(&profile);
             session2.lints.push(ActiveLint {
                 lint: probe,
-                severity: Severity::Warn,
+                severities: vec![(META.id, Severity::Warn)],
             });
         }
         session2.run(&parsed.spec, src);
@@ -746,6 +766,17 @@ mod tests {
         assert!(
             !diags.iter().any(|d| d.lint_id == "RPM001"),
             "RPM001 should be silenced by allow override"
+        );
+    }
+
+    #[test]
+    fn config_id_suppresses_lint() {
+        let mut cfg = Config::default();
+        cfg.lints.insert("RPM001".into(), Severity::Allow);
+        let (_outcome, diags) = analyze("Name: x\n", &cfg);
+        assert!(
+            !diags.iter().any(|d| d.lint_id == "RPM001"),
+            "RPM001 should be silenced by its config ID"
         );
     }
 
@@ -824,6 +855,14 @@ mod tests {
             diags.is_empty(),
             "allow override must suppress bridged diag"
         );
+    }
+
+    #[test]
+    fn bridge_silenced_by_config_id() {
+        let mut cfg = Config::default();
+        cfg.lints.insert("parse/W0002".into(), Severity::Allow);
+        let diags = bridge_parser_diagnostics(&[pd(Some("rpmspec/W0002"), None, "msg")], &cfg);
+        assert!(diags.is_empty(), "config ID must suppress bridged diag");
     }
 
     #[test]

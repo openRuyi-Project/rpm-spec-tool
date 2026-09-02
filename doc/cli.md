@@ -53,7 +53,8 @@ Highlights:
 
 * `--profile NAME` wins over the `profile = …` key in `rpmspec.toml`.
 * `--deny warnings` (clippy convention) promotes every `warn` to
-  `deny`; `--allow warnings` clears it.
+  `deny`; `--allow warnings` disables it when used alone. If both are
+  present, `deny` wins.
 * `--define 'NAME VALUE'` mirrors `rpmbuild --define`. Pass repeatedly
   for multiple macros. CLI defines outrank both the profile and the
   config's `[profiles.X.macros]`.
