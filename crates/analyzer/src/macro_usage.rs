@@ -328,8 +328,8 @@ impl<'ast> Visit<'ast> for MacroUsageCollector {
 
     fn visit_statement(&mut self, node: &'ast MacroRef) {
         // The default visit_statement only walks children; it
-        // doesn't call visit_macro_ref on the statement itself,
-        // so top-level statement macros (e.g. `%dump`, `%trace`)
+        // doesn't call visit_macro_ref on the statement itself, so
+        // standalone macros at the top level or inside `%changelog`
         // would slip through. Delegate explicitly.
         self.visit_macro_ref(node);
     }
@@ -505,6 +505,13 @@ License: MIT
         // now classified as an RPM auto-define (preamble injects
         // it) so the collector excludes it.
         assert!(!names.contains("name"));
+    }
+
+    #[test]
+    fn collects_autochangelog_from_changelog() {
+        let names = names_of("Name: foo\nVersion: 1\nRelease: 1\n%changelog\n%autochangelog\n");
+
+        assert_eq!(names, BTreeSet::from(["autochangelog".to_string()]));
     }
 
     #[test]

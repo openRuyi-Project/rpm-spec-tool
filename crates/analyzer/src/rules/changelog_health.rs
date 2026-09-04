@@ -22,7 +22,8 @@
 //! All are `LintCategory::Correctness`.
 
 use rpm_spec::ast::{
-    ChangelogEntry, Month, Section, Span, SpecFile, SpecItem, Tag, TagValue, TextSegment, Weekday,
+    ChangelogEntry, ChangelogItem, Month, Section, Span, SpecFile, SpecItem, Tag, TagValue,
+    TextSegment, Weekday,
 };
 
 use crate::diagnostic::{Diagnostic, LintCategory, Severity};
@@ -291,14 +292,18 @@ impl ChangelogOrderWeekdayEvr {
 
 impl<'ast> Visit<'ast> for ChangelogOrderWeekdayEvr {
     fn visit_spec(&mut self, spec: &'ast SpecFile<Span>) {
-        let Some(entries) = find_changelog_entries(spec) else {
+        let Some(items) = find_changelog_items(spec) else {
             return;
         };
 
         // (a) ordering — each entry's date must be ≤ the previous one
         // (changelogs run newest-first).
         let mut prev: Option<(time::Date, Span)> = None;
-        for entry in entries {
+        for item in items {
+            let ChangelogItem::Entry(entry) = item else {
+                prev = None;
+                continue;
+            };
             let Some(date) = entry_to_date(entry) else {
                 prev = None;
                 continue;
@@ -323,7 +328,10 @@ impl<'ast> Visit<'ast> for ChangelogOrderWeekdayEvr {
         }
 
         // (b) weekday correctness — entry weekday must match calendar.
-        for entry in entries {
+        for item in items {
+            let ChangelogItem::Entry(entry) = item else {
+                continue;
+            };
             let Some(date) = entry_to_date(entry) else {
                 continue;
             };
@@ -343,7 +351,7 @@ impl<'ast> Visit<'ast> for ChangelogOrderWeekdayEvr {
         }
 
         // (c) latest EVR must match spec's Version-Release.
-        if let Some(latest) = entries.first()
+        if let Some(ChangelogItem::Entry(latest)) = items.first()
             && let Some(latest_evr) = changelog_evr(latest)
             && let Some(spec_evr) = spec_version_release(spec)
             && latest_evr != spec_evr
@@ -370,12 +378,12 @@ impl Lint for ChangelogOrderWeekdayEvr {
     }
 }
 
-fn find_changelog_entries(spec: &SpecFile<Span>) -> Option<&[ChangelogEntry<Span>]> {
+fn find_changelog_items(spec: &SpecFile<Span>) -> Option<&[ChangelogItem<Span>]> {
     for item in &spec.items {
         if let SpecItem::Section(boxed) = item
-            && let Section::Changelog { entries, .. } = boxed.as_ref()
+            && let Section::Changelog { items, .. } = boxed.as_ref()
         {
-            return Some(entries.as_slice());
+            return Some(items.as_slice());
         }
     }
     None
@@ -638,6 +646,27 @@ mod tests {
         let src = "Name: x\nVersion: 1\nRelease: 1%{?dist}\n%changelog\n\
 * Mon Jan 01 2024 a <a@b> - 1-1\n- init\n";
         assert!(run_311(src).is_empty());
+    }
+
+    #[test]
+    fn rpm311_does_not_compare_entries_across_autochangelog() {
+        let src = "Name: x\nVersion: 1\nRelease: 1\n%changelog\n\
+* Mon Jan 01 2024 a <a@b> - 1-1\n- first static entry\n\
+%autochangelog\n\
+* Sat Jun 01 2024 b <b@b> - 1-2\n- newer but behind an opaque statement\n";
+        assert!(run_311(src).is_empty());
+    }
+
+    #[test]
+    fn rpm311_checks_entries_after_autochangelog_without_assuming_latest() {
+        let src = "Name: x\nVersion: 9\nRelease: 1\n%changelog\n\
+%autochangelog\n\
+* Mon Jan 01 2024 a <a@b> - 1-1\n- older static entry\n\
+* Sat Jun 01 2024 b <b@b> - 2-1\n- newer static entry\n";
+        let diagnostics = run_311(src);
+
+        assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+        assert!(diagnostics[0].message.contains("newer than"));
     }
 
     #[test]

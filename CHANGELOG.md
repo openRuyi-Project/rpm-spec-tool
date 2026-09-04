@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Main`, `Prepend`, and `Append` build-script placement. Registry publishing
   for the analyzer and CLI is paused until the same API is available from a
   registry release.
+- **Breaking (pre-1.0):** AST consumers and `ast` JSON/YAML output now receive
+  source-ordered `%changelog` `items`. Dated entries use `Entry` items and
+  standalone macros use `Statement` items, replacing the former `entries`
+  array.
 
 ### Fixed
 
@@ -30,6 +34,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - AST output, analyzer helpers, and matrix script-section comparisons preserve
   build-script placement instead of merging `%install`, `%install -p`, and
   `%install -a`.
+- `format`, `pretty`, and `check` preserve standalone `%changelog` macro
+  statements; `lint` and `check` no longer report them as `rpmspec/W0022`, and
+  matrix impact includes their changes. Macro-usage and portability analysis
+  now evaluate these statements against the selected profile instead of
+  ignoring them.
 
 ## [0.1.3] - 2026-05-21
 

@@ -1408,7 +1408,12 @@ fn render_text_to_source(t: &Text) -> Result<String, EvalError> {
     Ok(out)
 }
 
-fn macro_ref_to_source(mr: &MacroRef) -> String {
+/// Render a macro reference for rescanning or semantic comparison.
+///
+/// The result preserves known macro structure but is not a byte-for-byte view
+/// of the original source; exact text requires retaining the original source
+/// and an enclosing span.
+pub(crate) fn macro_ref_to_source(mr: &MacroRef) -> String {
     use rpm_spec::ast::{BuiltinMacro, ConditionalMacro, MacroKind, TextSegment};
     // Re-renders a `MacroRef` back to its surface form so the macro
     // lexer in `expand_raw_string` can scan it again. Pre-Phase 12

@@ -24,15 +24,15 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use rpm_spec::ast::{
-    BuildScriptKind, BuildScriptPlacement, ChangelogEntry, FileEntry, ScriptletKind, Section,
-    ShellBody, Span, SpecFile, SpecItem, SubpkgRef, Tag, TagValue, TextBody,
+    BuildScriptKind, BuildScriptPlacement, ChangelogEntry, ChangelogItem, FileEntry, ScriptletKind,
+    Section, ShellBody, Span, SpecFile, SpecItem, SubpkgRef, Tag, TagValue, TextBody,
 };
 use rpm_spec_profile::ResolvedTargetSet;
 use serde::Serialize;
 
 use crate::bcond::BcondOverrides;
 use crate::branch_aware::{IndeterminatePolicy, ProfileBranchSelection, walk_active_preamble};
-use crate::branch_coverage::CoverageReport;
+use crate::branch_coverage::{CoverageReport, macro_ref_to_source};
 use crate::dep_walk::{for_each_dep_atom, render_text_with_macros};
 
 /// Tags the impact report folds over — same set as `matrix diff`'s
@@ -500,13 +500,13 @@ fn collect_from_section(section: &Section<Span>, out: &mut BTreeMap<String, Vec<
                 .or_default()
                 .extend(render_text_body_lines(body));
         }
-        Section::Changelog { entries, .. } => {
-            // Changelog: most PRs add a new entry, so this section
-            // will almost always show movement. That's accurate
-            // signal — a PR without a changelog entry IS unusual.
+        Section::Changelog { items, .. } => {
+            // Dated entries and standalone macro statements both
+            // affect how package history is produced, so neither may
+            // disappear from the impact view.
             out.entry("%changelog".to_string())
                 .or_default()
-                .extend(render_changelog_entries(entries));
+                .extend(render_changelog_items(items));
         }
         Section::Files {
             subpkg,
@@ -550,36 +550,42 @@ fn render_text_body_lines(body: &TextBody) -> Vec<String> {
     body.lines.iter().map(render_text_with_macros).collect()
 }
 
-/// Flatten a `%changelog` entry into a list of `Vec<String>` lines:
-/// `* Mon Jan 01 2026 author <email> - version` header plus each
-/// body line. Header is rendered as one line; body lines as-is.
-/// Multiset diff on this representation surfaces "new entry added"
-/// (entry's lines all in `added`) and "version bumped" (header line
-/// added + old header removed).
-fn render_changelog_entries<T>(entries: &[ChangelogEntry<T>]) -> Vec<String> {
-    let mut out = Vec::with_capacity(entries.len() * 4);
-    for e in entries {
-        let mut header = String::new();
-        header.push_str("* ");
-        header.push_str(&format!(
-            "{:?} {:?} {:02} {}",
-            e.date.weekday, e.date.month, e.date.day, e.date.year
-        ));
-        header.push(' ');
-        header.push_str(&render_text_with_macros(&e.author));
-        if let Some(email) = &e.email {
-            header.push_str(" <");
-            header.push_str(&render_text_with_macros(email));
-            header.push('>');
+/// Flatten source-ordered `%changelog` items into lines for multiset diff.
+fn render_changelog_items<T>(items: &[ChangelogItem<T>]) -> Vec<String> {
+    let mut out = Vec::with_capacity(items.len() * 4);
+    for item in items {
+        match item {
+            ChangelogItem::Entry(entry) => render_changelog_entry(entry, &mut out),
+            ChangelogItem::Statement { macro_ref, .. } => {
+                out.push(macro_ref_to_source(macro_ref));
+            }
+            _ => {}
         }
-        if let Some(version) = &e.version {
-            header.push_str(" - ");
-            header.push_str(&render_text_with_macros(version));
-        }
-        out.push(header);
-        out.extend(e.body.iter().map(render_text_with_macros));
     }
     out
+}
+
+/// Append one conventional changelog entry as a header followed by body lines.
+fn render_changelog_entry<T>(entry: &ChangelogEntry<T>, out: &mut Vec<String>) {
+    let mut header = String::new();
+    header.push_str("* ");
+    header.push_str(&format!(
+        "{:?} {:?} {:02} {}",
+        entry.date.weekday, entry.date.month, entry.date.day, entry.date.year
+    ));
+    header.push(' ');
+    header.push_str(&render_text_with_macros(&entry.author));
+    if let Some(email) = &entry.email {
+        header.push_str(" <");
+        header.push_str(&render_text_with_macros(email));
+        header.push('>');
+    }
+    if let Some(version) = &entry.version {
+        header.push_str(" - ");
+        header.push_str(&render_text_with_macros(version));
+    }
+    out.push(header);
+    out.extend(entry.body.iter().map(render_text_with_macros));
 }
 
 /// Render a `%files` entry's path text. Returns `None` for entries
@@ -709,8 +715,8 @@ fn collect_active_from_section(
                 out.extend(render_text_body_lines(body));
             }
         }
-        Section::Changelog { entries, .. } if label == "%changelog" => {
-            out.extend(render_changelog_entries(entries));
+        Section::Changelog { items, .. } if label == "%changelog" => {
+            out.extend(render_changelog_items(items));
         }
         Section::Files {
             subpkg,
@@ -1154,6 +1160,22 @@ echo posted
             "expected %files label; got keys {:?}",
             sections.keys().collect::<Vec<_>>()
         );
+    }
+
+    #[test]
+    fn autochangelog_form_change_is_reported_as_script_movement() {
+        const FROM: &str = "Name: foo\nVersion: 1\nRelease: 1\n%changelog\n%{?autochangelog}\n";
+        const TO: &str = "Name: foo\nVersion: 1\nRelease: 1\n%changelog\n%autochangelog\n";
+
+        let report = report(FROM, TO, &["rhel-9-x86_64"]);
+        let changes = &report.per_profile[0].script_sections;
+        assert_eq!(changes.len(), 1, "unexpected changes: {changes:?}");
+        let change = changes
+            .iter()
+            .find(|change| change.label == "%changelog")
+            .expect("changelog movement reported");
+
+        assert_eq!((change.added, change.removed, change.unchanged), (1, 1, 0));
     }
 
     #[test]

@@ -10,10 +10,10 @@
 //! making every signature generic over `T` is noise without payoff.
 
 use rpm_spec::ast::{
-    BoolDep, BuildCondition, ChangelogEntry, Comment, Conditional, DepAtom, DepExpr, EVR,
-    FileEntry, FileTrigger, FilesContent, IncludeDirective, MacroDef, MacroRef, PreambleContent,
-    PreambleItem, Scriptlet, Section, ShellBody, ShellConditional, Span, SpecFile, SpecItem,
-    TagValue, Text, TextBody, TextSegment, Trigger,
+    BoolDep, BuildCondition, ChangelogEntry, ChangelogItem, Comment, Conditional, DepAtom, DepExpr,
+    EVR, FileEntry, FileTrigger, FilesContent, IncludeDirective, MacroDef, MacroRef,
+    PreambleContent, PreambleItem, Scriptlet, Section, ShellBody, ShellConditional, Span, SpecFile,
+    SpecItem, TagValue, Text, TextBody, TextSegment, Trigger,
 };
 
 /// AST walker. Implement the methods you need; defaults handle traversal.
@@ -89,6 +89,10 @@ pub trait Visit<'ast> {
 
     fn visit_file_entry(&mut self, node: &'ast FileEntry<Span>) {
         walk_file_entry(self, node)
+    }
+
+    fn visit_changelog_item(&mut self, node: &'ast ChangelogItem<Span>) {
+        walk_changelog_item(self, node)
     }
 
     fn visit_changelog_entry(&mut self, node: &'ast ChangelogEntry<Span>) {
@@ -204,9 +208,9 @@ pub fn walk_section<'a, V: Visit<'a> + ?Sized>(v: &mut V, node: &'a Section<Span
         Section::Trigger(t) => v.visit_trigger(t),
         Section::FileTrigger(t) => v.visit_file_trigger(t),
         Section::Verify { body, .. } => v.visit_shell_body(body),
-        Section::Changelog { entries, .. } => {
-            for e in entries {
-                v.visit_changelog_entry(e);
+        Section::Changelog { items, .. } => {
+            for item in items {
+                v.visit_changelog_item(item);
             }
         }
         Section::SourceList { entries, .. } | Section::PatchList { entries, .. } => {
@@ -311,6 +315,14 @@ pub fn walk_files_content<'a, V: Visit<'a> + ?Sized>(v: &mut V, node: &'a FilesC
 pub fn walk_file_entry<'a, V: Visit<'a> + ?Sized>(v: &mut V, node: &'a FileEntry<Span>) {
     if let Some(path) = &node.path {
         v.visit_text(&path.path);
+    }
+}
+
+pub fn walk_changelog_item<'a, V: Visit<'a> + ?Sized>(v: &mut V, node: &'a ChangelogItem<Span>) {
+    match node {
+        ChangelogItem::Entry(entry) => v.visit_changelog_entry(entry),
+        ChangelogItem::Statement { macro_ref, .. } => v.visit_statement(macro_ref),
+        _ => {}
     }
 }
 

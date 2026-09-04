@@ -122,6 +122,32 @@ echo after\n";
 }
 
 #[test]
+fn ast_json_preserves_autochangelog_statement() {
+    let src = "Name: x\nVersion: 1\nRelease: 1\n%changelog\n%autochangelog\n";
+    let (code, stdout, stderr) = run(&["ast", "--format", "json"], Some(src));
+    assert_eq!(code, 0, "stderr={stderr}\nstdout={stdout}");
+
+    let ast: serde_json::Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|error| panic!("invalid JSON: {error}"));
+    let changelog = ast["items"]
+        .as_array()
+        .expect("AST items array")
+        .iter()
+        .find_map(|item| item.get("Section")?.get("Changelog"))
+        .expect("changelog section");
+    let statement = changelog["items"]
+        .as_array()
+        .expect("changelog items array")
+        .first()
+        .and_then(|item| item.get("Statement"))
+        .expect("changelog statement");
+
+    assert_eq!(statement["macro_ref"]["kind"], "Plain");
+    assert_eq!(statement["macro_ref"]["name"], "autochangelog");
+    assert_eq!(statement["macro_ref"]["conditional"], "None");
+}
+
+#[test]
 fn lint_default_warn_exits_zero() {
     let spec = write_temp(MISSING_CHANGELOG_SPEC);
     let (code, stdout, stderr) = run(&["lint", spec.path().to_str().unwrap()], None);
@@ -548,6 +574,19 @@ const SPEC_WITH_IF: &str = "Name: hello\nVersion: 1\nRelease: 1\nSummary: s\nLic
 
 const SPEC_NO_IF: &str = "Name: hello\nVersion: 1\nRelease: 1\nSummary: s\nLicense: MIT\nURL: https://e.org\n\
 %description\nBody.\n%changelog\n* Mon Jan 01 2024 a <a@b> - 1-1\n- init\n";
+
+#[test]
+fn check_accepts_autochangelog_without_parser_warning() {
+    let spec = write_temp(
+        "Name:           hello\nVersion:        1.0\nRelease:        1\nSummary:        S\n\
+\nLicense:        MIT\n\n%description\nBody.\n\n%changelog\n%autochangelog\n",
+    );
+    let (code, stdout, stderr) = run(&["check", spec.path().to_str().unwrap()], None);
+
+    assert_eq!(code, 0, "stderr={stderr}\nstdout={stdout}");
+    assert!(!stdout.contains("W0022"), "stdout={stdout}");
+    assert!(!stderr.contains("W0022"), "stderr={stderr}");
+}
 
 #[test]
 fn format_default_keeps_conditionals_flush_left() {
