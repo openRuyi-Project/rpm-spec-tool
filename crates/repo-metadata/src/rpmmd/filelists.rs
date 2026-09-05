@@ -39,13 +39,10 @@ pub fn merge(xml: &[u8], packages: &mut [Package]) -> Result<(), RepoError> {
     }
 
     let mut reader = Reader::from_reader(xml);
-    reader.config_mut().trim_text(true);
 
     let mut buf = Vec::new();
     let mut current_pkgid: Option<String> = None;
     let mut current_name: Option<String> = None;
-    let mut collecting_file = false;
-    let mut file_text = String::new();
     let mut files_for_pkg: Vec<Arc<str>> = Vec::new();
 
     loop {
@@ -69,30 +66,18 @@ pub fn merge(xml: &[u8], packages: &mut [Package]) -> Result<(), RepoError> {
                 }
             }
             Event::Start(e) if e.name().as_ref() == b"file" => {
-                collecting_file = true;
-                file_text.clear();
-            }
-            Event::Text(t) if collecting_file => {
-                file_text.push_str(&t.unescape().map_err(|e| {
-                    RepoError::parse_at_file("filelists.xml", format!("text: {e}"))
-                })?);
-            }
-            Event::End(e) if e.name().as_ref() == b"file" => {
-                if collecting_file {
-                    files_for_pkg.push(Arc::from(file_text.clone()));
-                    if files_for_pkg.len() > MAX_FILES_PER_PACKAGE {
-                        return Err(RepoError::parse_at_file(
-                            "filelists.xml",
-                            format!(
-                                "package {name:?} has more than {MAX_FILES_PER_PACKAGE} files \
-                                 (likely hostile or corrupt repo)",
-                                name = current_name.as_deref().unwrap_or("<unknown>"),
-                            ),
-                        ));
-                    }
+                let file = super::read_element_text(&mut reader, e.name(), "filelists.xml")?;
+                files_for_pkg.push(Arc::from(file));
+                if files_for_pkg.len() > MAX_FILES_PER_PACKAGE {
+                    return Err(RepoError::parse_at_file(
+                        "filelists.xml",
+                        format!(
+                            "package {name:?} has more than {MAX_FILES_PER_PACKAGE} files \
+                             (likely hostile or corrupt repo)",
+                            name = current_name.as_deref().unwrap_or("<unknown>"),
+                        ),
+                    ));
                 }
-                collecting_file = false;
-                file_text.clear();
             }
             Event::End(e) if e.name().as_ref() == b"package" => {
                 let idx = current_pkgid
@@ -180,5 +165,19 @@ mod tests {
         let mut packages = vec![pkg("not-bash", "different")];
         merge(TINY.as_bytes(), &mut packages).unwrap();
         assert!(packages[0].files.is_empty(), "no match: untouched");
+    }
+
+    #[test]
+    fn decodes_xml_entities_in_file_paths() {
+        let xml = r#"<filelists>
+  <package pkgid="abc123" name="bash" arch="x86_64">
+    <file>/opt/a&amp;b</file>
+  </package>
+</filelists>"#;
+        let mut packages = vec![pkg("bash", "abc123")];
+
+        merge(xml.as_bytes(), &mut packages).unwrap();
+
+        assert_eq!(packages[0].files[0].as_ref(), "/opt/a&b");
     }
 }

@@ -12,6 +12,9 @@ mod primary;
 mod repomd;
 mod updateinfo;
 
+use quick_xml::Reader;
+use quick_xml::escape::unescape;
+use quick_xml::name::QName;
 use time::OffsetDateTime;
 
 use rpm_spec_repo_core::{RepoError, RepoId, RepoIndex, RepoKind, RepoRevision};
@@ -23,6 +26,34 @@ use crate::http::HttpCache;
 /// is a discriminator only.
 #[derive(Debug, Default)]
 pub struct RpmMdBackend;
+
+/// Removes the four whitespace characters defined by XML.
+fn trim_xml_whitespace(text: &str) -> &str {
+    text.trim_matches(|character| matches!(character, ' ' | '\t' | '\n' | '\r'))
+}
+
+/// Reads one text-only element and resolves its XML references.
+fn read_element_text(
+    reader: &mut Reader<&[u8]>,
+    end: QName<'_>,
+    source: &'static str,
+) -> Result<String, RepoError> {
+    let raw = reader
+        .read_text(end)
+        .map_err(|error| RepoError::parse_at_file(source, format!("text: {error}")))?;
+    let decoded = raw
+        .decode()
+        .map_err(|error| RepoError::parse_at_file(source, format!("text: {error}")))?;
+    if decoded.contains('<') {
+        return Err(RepoError::parse_at_file(
+            source,
+            "text-only element contains markup",
+        ));
+    }
+    let text = unescape(trim_xml_whitespace(&decoded))
+        .map_err(|error| RepoError::parse_at_file(source, format!("text: {error}")))?;
+    Ok(text.into_owned())
+}
 
 impl RepoBackend for RpmMdBackend {
     fn kind(&self) -> RepoKind {

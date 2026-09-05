@@ -25,7 +25,6 @@ pub const MAX_PACKAGES_PER_REPO: usize = 1_000_000;
 /// `repo_id`.
 pub fn parse(xml: &[u8], repo_id: RepoId) -> Result<Vec<Package>, RepoError> {
     let mut reader = Reader::from_reader(xml);
-    reader.config_mut().trim_text(true);
 
     let mut packages = Vec::new();
     let mut buf = Vec::new();
@@ -34,13 +33,6 @@ pub fn parse(xml: &[u8], repo_id: RepoId) -> Result<Vec<Package>, RepoError> {
     let mut in_package = false;
     let mut current = PackageBuilder::default();
     let mut dep_collector: Option<DepKind> = None;
-    // Scratch buffer for the most recent `Event::Text` body. The
-    // `Text` handler overwrites this unconditionally before the
-    // `Field`-based dispatch reads it; the initial empty value never
-    // surfaces in `current`.
-    #[allow(unused_assignments)]
-    let mut last_text = String::new();
-    let mut last_field: Option<Field> = None;
 
     loop {
         match reader
@@ -52,12 +44,19 @@ pub fn parse(xml: &[u8], repo_id: RepoId) -> Result<Vec<Package>, RepoError> {
                     in_package = true;
                     current = PackageBuilder::default();
                 }
-                b"name" if in_package => last_field = Some(Field::Name),
-                b"arch" if in_package => last_field = Some(Field::Arch),
-                b"summary" if in_package => last_field = Some(Field::Summary),
+                b"name" if in_package => {
+                    current.name = super::read_element_text(&mut reader, e.name(), "primary.xml")?;
+                }
+                b"arch" if in_package => {
+                    current.arch = super::read_element_text(&mut reader, e.name(), "primary.xml")?;
+                }
+                b"summary" if in_package => {
+                    current.summary =
+                        super::read_element_text(&mut reader, e.name(), "primary.xml")?;
+                }
                 b"checksum" if in_package => {
-                    // Parse the `type` attribute up-front (single pass), then capture
-                    // the text body via `last_field = Some(Field::ChecksumHex)`.
+                    // Parse the `type` attribute before `read_element_text`
+                    // consumes the matching end tag.
                     for attr in e.attributes().with_checks(false).flatten() {
                         if attr.key.as_ref() == b"type" {
                             current.checksum_algo = std::str::from_utf8(&attr.value)
@@ -70,10 +69,16 @@ pub fn parse(xml: &[u8], repo_id: RepoId) -> Result<Vec<Package>, RepoError> {
                                 .to_string();
                         }
                     }
-                    last_field = Some(Field::ChecksumHex);
+                    current.checksum_hex =
+                        super::read_element_text(&mut reader, e.name(), "primary.xml")?;
                 }
-                b"format" if in_package => last_field = None,
-                b"rpm:sourcerpm" if in_package => last_field = Some(Field::SourceRpm),
+                b"rpm:sourcerpm" if in_package => {
+                    current.source_rpm = Some(super::read_element_text(
+                        &mut reader,
+                        e.name(),
+                        "primary.xml",
+                    )?);
+                }
                 b"rpm:provides" if in_package => dep_collector = Some(DepKind::Provides),
                 b"rpm:requires" if in_package => dep_collector = Some(DepKind::Requires),
                 b"rpm:conflicts" if in_package => dep_collector = Some(DepKind::Conflicts),
@@ -154,25 +159,7 @@ pub fn parse(xml: &[u8], repo_id: RepoId) -> Result<Vec<Package>, RepoError> {
                 }
                 _ => {}
             },
-            Event::Text(t) => {
-                let s = t.unescape().map_err(|e| {
-                    RepoError::parse_at_file("primary.xml", format!("text decode: {e}"))
-                })?;
-                last_text = s.into_owned();
-                if let Some(field) = last_field {
-                    match field {
-                        Field::Name => current.name = last_text.clone(),
-                        Field::Arch => current.arch = last_text.clone(),
-                        Field::Summary => current.summary = last_text.clone(),
-                        Field::ChecksumHex => current.checksum_hex = last_text.clone(),
-                        Field::SourceRpm => current.source_rpm = Some(last_text.clone()),
-                    }
-                }
-            }
             Event::End(e) => match e.name().as_ref() {
-                b"name" | b"arch" | b"summary" | b"checksum" | b"rpm:sourcerpm" => {
-                    last_field = None;
-                }
                 b"rpm:provides" | b"rpm:requires" | b"rpm:conflicts" | b"rpm:obsoletes"
                 | b"rpm:recommends" | b"rpm:suggests" | b"rpm:supplements" | b"rpm:enhances" => {
                     dep_collector = None
@@ -201,15 +188,6 @@ pub fn parse(xml: &[u8], repo_id: RepoId) -> Result<Vec<Package>, RepoError> {
     }
 
     Ok(packages)
-}
-
-#[derive(Debug, Clone, Copy)]
-enum Field {
-    Name,
-    Arch,
-    Summary,
-    ChecksumHex,
-    SourceRpm,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -434,5 +412,49 @@ mod tests {
         // cmake's Requires references plain `bash` (no version constraint)
         assert_eq!(cmake.requires.len(), 1);
         assert!(cmake.requires[0].version().is_unversioned());
+    }
+
+    #[test]
+    fn decodes_xml_entities_in_text_fields() {
+        let xml = r#"<metadata>
+  <package type="rpm">
+    <name>demo</name>
+    <arch>noarch</arch>
+    <version epoch="0" ver="1" rel="1"/>
+    <summary> &#32;Tools &amp; helpers&#32; </summary>
+  </package>
+</metadata>"#;
+
+        let packages = parse(xml.as_bytes(), RepoId::from("test")).unwrap();
+
+        assert_eq!(packages[0].summary.as_ref(), " Tools & helpers ");
+    }
+
+    #[test]
+    fn rejects_markup_in_text_fields() {
+        for markup in [
+            "<!--comment-->",
+            "<![CDATA[content]]>",
+            "<nested>content</nested>",
+        ] {
+            let xml = format!(
+                r#"<metadata>
+  <package type="rpm">
+    <name>demo</name>
+    <arch>noarch</arch>
+    <version epoch="0" ver="1" rel="1"/>
+    <summary>{markup}</summary>
+  </package>
+</metadata>"#
+            );
+
+            let error = parse(xml.as_bytes(), RepoId::from("test")).unwrap_err();
+
+            assert!(
+                error
+                    .to_string()
+                    .contains("text-only element contains markup")
+            );
+        }
     }
 }
