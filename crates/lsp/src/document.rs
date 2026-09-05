@@ -76,12 +76,10 @@ impl Document {
 pub fn uri_to_path(uri: &Uri) -> Option<PathBuf> {
     let s = uri.as_str();
     let rest = s.strip_prefix("file://")?;
-    let path_part = match rest.find('/') {
-        // `file:///foo` → rest = "/foo", first '/' at 0, path = "/foo".
-        // `file://host/foo` → rest = "host/foo", first '/' at 4, path = "/foo".
-        Some(idx) => &rest[idx..],
-        None => return None,
-    };
+    // `file:///foo` starts at the first byte; `file://host/foo` starts
+    // after the host. No slash means that the URI has no path.
+    let path_start = rest.find('/')?;
+    let path_part = &rest[path_start..];
     let decoded = percent_decode(path_part)?;
     Some(PathBuf::from(decoded))
 }

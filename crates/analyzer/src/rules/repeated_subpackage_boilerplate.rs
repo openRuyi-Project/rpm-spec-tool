@@ -119,7 +119,7 @@ fn item_to_canon(p: &PreambleItem<Span>) -> Option<String> {
             }
             out.trim().to_owned()
         }
-        TagValue::Dep(_) => format!("{:?}", &p.value),
+        TagValue::Dep(_) => format!("{:?}", p.value),
         _ => return None,
     };
     if value.is_empty() {
