@@ -33,6 +33,7 @@ time.workspace       = true
 directories = "5"
 
 [dev-dependencies]
+toml = { workspace = true, features = ["display"] }
 tempfile = "3"
 
 [features]

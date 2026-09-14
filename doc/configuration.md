@@ -17,6 +17,9 @@ This page covers the schema and discovery rules. For the surface area
 of the four `config` subcommands see [§ The `config` subcommand
 tree](#the-config-subcommand-tree) below.
 
+Configuration files use [TOML 1.1](https://toml.io/en/v1.1.0).
+Multiline inline tables, comments inside them, and trailing commas are supported.
+
 ## Discovery
 
 The tool resolves `rpmspec.toml` via a fixed cascade — no walk-up,

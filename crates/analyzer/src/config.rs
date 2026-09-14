@@ -432,6 +432,21 @@ preamble-align-column = 20
     }
 
     #[test]
+    fn multiline_inline_lints() {
+        let cfg = Config::from_toml_str(
+            r#"lints = {
+    # TOML 1.1 permits newlines, comments, and a trailing comma here.
+    RPM001 = "deny",
+}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            cfg.severity_for("RPM001", "missing-changelog", Severity::Warn),
+            Severity::Deny
+        );
+    }
+
+    #[test]
     fn unknown_field_rejected() {
         let toml_str = "unknown-key = 1\n";
         assert!(Config::from_toml_str(toml_str).is_err());
