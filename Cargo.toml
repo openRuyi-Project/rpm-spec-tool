@@ -20,7 +20,7 @@ repository   = "https://github.com/johnlepikhin/rpm-spec-tool"
 publish      = ["crates-io"]
 
 [workspace.dependencies]
-rpm-spec               = { version = "0.4.1", git = "https://github.com/openRuyi-Project/rpm-spec", rev = "c0497cdf1cde3d8edf3782c969b2dbae0c684bfe", features = ["parser", "printer", "serde"] }
+rpm-spec               = { version = "0.4.1", git = "https://github.com/openRuyi-Project/rpm-spec", rev = "964da4de8713babad153044dc1a7f0f48b2ae707", features = ["parser", "printer", "serde"] }
 rpm-spec-profile       = { path = "crates/profile", version = "0.1.3" }
 rpm-spec-repo-core     = { path = "crates/repo-core", version = "0.1.3" }
 rpm-spec-repo-metadata = { path = "crates/repo-metadata", version = "0.1.3" }
