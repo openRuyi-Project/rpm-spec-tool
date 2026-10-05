@@ -1015,7 +1015,7 @@ dependencies = [
 [[package]]
 name = "rpm-spec"
 version = "0.4.1"
-source = "git+https://github.com/openRuyi-Project/rpm-spec?rev=964da4de8713babad153044dc1a7f0f48b2ae707#964da4de8713babad153044dc1a7f0f48b2ae707"
+source = "git+https://github.com/openRuyi-Project/rpm-spec?rev=321f645ac860492f5f8aa068e6191857d990a6c0#321f645ac860492f5f8aa068e6191857d990a6c0"
 dependencies = [
  "nom",
  "nom_locate",
