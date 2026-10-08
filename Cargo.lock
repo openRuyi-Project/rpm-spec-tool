@@ -147,12 +147,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bytecount"
-version = "0.6.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "175812e0be2bccb6abe50bb8d566126198344f707e304f45c648fd8f2cc0365e"
-
-[[package]]
 name = "cc"
 version = "1.2.62"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -804,17 +798,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nom_locate"
-version = "5.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0b577e2d69827c4740cba2b52efaad1c4cc7c73042860b199710b3575c68438d"
-dependencies = [
- "bytecount",
- "memchr",
- "nom",
-]
-
-[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1015,10 +998,9 @@ dependencies = [
 [[package]]
 name = "rpm-spec"
 version = "0.4.1"
-source = "git+https://github.com/openRuyi-Project/rpm-spec?rev=321f645ac860492f5f8aa068e6191857d990a6c0#321f645ac860492f5f8aa068e6191857d990a6c0"
+source = "git+https://github.com/openRuyi-Project/rpm-spec?rev=e9b1ffad9ccb63ff6e5bdb5c2c5b0171e4bb61ff#e9b1ffad9ccb63ff6e5bdb5c2c5b0171e4bb61ff"
 dependencies = [
  "nom",
- "nom_locate",
  "serde",
  "thiserror 2.0.18",
 ]
